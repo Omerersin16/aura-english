@@ -1,5 +1,8 @@
 fastapi
 uvicorn
-httpx
-pydantic
 psycopg2-binary
+python-dotenv
+pydantic
+requests
+PyPDF2
+groq
