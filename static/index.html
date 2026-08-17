@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AuraEnglish</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Poppins', 'sans-serif'] },
+                    colors: { darkbg: '#121212', darkcard: '#1E1E24', bordo: '#800020', neonGreen: '#00FA9A', lilac: '#C8A2C8', lilacDark: '#9966CC' }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #121212; color: #E0E0E0; }
+        .glass-card { background: #1E1E24; border: 1px solid #333; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+        input, select, textarea { background-color: #2A2A35; color: #fff; border: 1px solid #444; }
+        input::placeholder, textarea::placeholder { color: #888; }
+        .interactive-word { cursor: pointer; border-bottom: 1px dashed #9966CC; transition: color 0.2s; }
+        .interactive-word:hover { color: #00FA9A; }
+        
+        /* Mikrofon dalgalanma animasyonu */
+        @keyframes ripple {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .recording-active { animation: ripple 1.5s infinite; }
+    </style>
+</head>
+<body class="antialiased min-h-screen flex flex-col relative">
+    <div id="app" class="max-w-5xl mx-auto w-full p-4 sm:p-6 lg:p-8 flex-grow flex flex-col relative">
+        <!-- MENÜ -->
+        <header class="flex justify-between items-center mb-8 bg-darkcard p-4 rounded-2xl shadow-lg border border-gray-800 flex-wrap gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-11 h-11 rounded-full bg-gradient-to-br from-bordo to-lilacDark flex items-center justify-center text-white font-bold text-2xl shadow-inner font-serif italic border border-lilac/30">A</div>
+                <h1 class="text-2xl font-bold tracking-tight text-white">AuraEnglish</h1>
+            </div>
+            <nav class="flex gap-2 flex-wrap">
+                <button @click="currentTab = 'reading'" :class="currentTab === 'reading' ? 'bg-lilacDark text-white shadow-md' : 'text-gray-400 hover:bg-gray-800'" class="px-4 py-2 rounded-xl transition-all font-medium">Okuma</button>
+                <button @click="currentTab = 'file'" :class="currentTab === 'file' ? 'bg-lilacDark text-white shadow-md' : 'text-gray-400 hover:bg-gray-800'" class="px-4 py-2 rounded-xl transition-all font-medium">Dosya 📄</button>
+                <button @click="currentTab = 'writing'" :class="currentTab === 'writing' ? 'bg-lilacDark text-white shadow-md' : 'text-gray-400 hover:bg-gray-800'" class="px-4 py-2 rounded-xl transition-all font-medium">Yazma</button>
+                <!-- YENİ KONUŞMA SEKMESİ EKLENDİ -->
+                <button @click="currentTab = 'speaking'" :class="currentTab === 'speaking' ? 'bg-lilacDark text-white shadow-md' : 'text-gray-400 hover:bg-gray-800'" class="px-4 py-2 rounded-xl transition-all font-medium">Konuşma 🎙️</button>
+                <button @click="fetchHistory(1); currentTab = 'history'" :class="currentTab === 'history' ? 'bg-lilacDark text-white shadow-md' : 'text-gray-400 hover:bg-gray-800'" class="px-4 py-2 rounded-xl transition-all font-medium">Geçmiş</button>
+            </nav>
+        </header>
+
+        <!-- YÜKLENİYOR EKRANI -->
+        <div v-if="loading" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
+            <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-lilacDark mb-4"></div>
+            <p class="text-lg font-medium text-lilac animate-pulse">{{ loadingMsg }}</p>
+        </div>
+
+        <main class="flex-grow">
+            <!-- READING & FILE RESULTS COMPONENT BURADA (ESKİ KOD) -->
+            <transition name="fade" mode="out-in">
+                <div v-if="(currentTab === 'reading' || currentTab === 'file') && readingData" class="space-y-6">
+                    <button @click="readingData = null" class="text-gray-400 hover:text-white mb-2 flex items-center gap-2">
+                        ← Yeni {{ currentTab === 'file' ? 'Dosya Yükle' : 'Metin Oluştur' }}
+                    </button>
+                    
+                    <div class="glass-card p-6 sm:p-8 relative">
+                        <h3 class="text-3xl font-bold mb-6 text-white">{{ readingData.title }}</h3>
+                        
+                        <div class="text-lg text-gray-300 leading-loose mb-10 space-y-6">
+                            <p v-for="(paragraph, pIndex) in parsedPassage" :key="pIndex" class="text-justify indent-4">
+                                <span v-for="(token, tIndex) in paragraph" :key="tIndex">
+                                    <template v-if="token.isWord">
+                                        <span class="interactive-word" @click="translateWord(token.word, $event)" title="Çeviri için tıkla">{{ token.word }}</span>{{ token.space }}
+                                    </template>
+                                    <template v-else>
+                                        {{ token.text }}
+                                    </template>
+                                </span>
+                            </p>
+                        </div>
+
+                        <div v-if="activePopup" class="fixed z-50 bg-gray-900 border border-lilac text-white p-3 rounded-xl shadow-2xl text-sm" :style="{ top: popupY + 'px', left: popupX + 'px' }">
+                            <div class="font-bold text-neonGreen mb-1">{{ activePopup.word }}</div>
+                            <div class="text-gray-300">{{ activePopup.translation }}</div>
+                        </div>
+                        
+                        <div v-if="readingData.fill_in_blanks && readingData.fill_in_blanks.length > 0" class="bg-gray-800 rounded-2xl p-6 mb-8 border border-gray-700">
+                            <h4 class="text-xl font-semibold text-lilac mb-4">🧩 Kelime Pratiği (Boşluk Doldurma)</h4>
+                            <div class="space-y-6">
+                                <div v-for="(item, bIndex) in readingData.fill_in_blanks" :key="'b'+bIndex" class="bg-darkcard p-5 rounded-xl border border-gray-600">
+                                    <p class="text-lg text-gray-200 mb-4 font-medium">
+                                        {{ bIndex + 1 }}. 
+                                        <span v-if="blankAnswers[bIndex] && blankAnswers[bIndex].isCorrect" class="text-neonGreen border-b-2 border-neonGreen px-1 font-bold">{{ item.options[item.correct_index] }}</span>
+                                        <span v-else v-html="item.sentence_with_blank.replace('___', '<span class=\'inline-block w-16 border-b-2 border-gray-500 mx-1\'></span>')"></span>
+                                    </p>
+                                    
+                                    <div class="flex flex-wrap gap-3">
+                                        <button v-for="(opt, oIndex) in item.options" 
+                                            @click="selectBlankOption(bIndex, oIndex)"
+                                            :disabled="blankAnswers[bIndex] && blankAnswers[bIndex].isCorrect"
+                                            :class="getBlankButtonClass(bIndex, oIndex, item.correct_index)"
+                                            class="px-4 py-2 rounded-lg border transition-all font-medium">
+                                            {{ opt }}
+                                        </button>
+                                    </div>
+
+                                    <div v-if="blankAnswers[bIndex] && blankAnswers[bIndex].showExplanation" class="mt-4 p-4 rounded-xl text-sm leading-relaxed" :class="blankAnswers[bIndex].isCorrect ? 'bg-darkGreen/20 text-neonGreen border border-darkGreen' : 'bg-bordo/20 text-red-400 border border-bordo'">
+                                        <strong>{{ blankAnswers[bIndex].isCorrect ? 'Harika! 🎉' : 'Yanlış Seçim! ❌' }}</strong> {{ item.explanation_tr }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="space-y-6">
+                            <h4 class="text-xl font-semibold text-white border-b border-gray-700 pb-2">Okuduğunu Anlama Soruları</h4>
+                            <div v-for="(q, qIndex) in readingData.questions" :key="qIndex" class="bg-gray-800 border border-gray-700 rounded-2xl p-6">
+                                <p class="font-medium text-lg mb-4 text-gray-100">{{ qIndex + 1 }}. {{ q.question }}</p>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <button v-for="(opt, oIndex) in q.options" @click="answers[qIndex] === undefined && (answers[qIndex] = oIndex)"
+                                        :class="answers[qIndex] === undefined ? 'hover:bg-gray-700 border-gray-600 text-gray-300' : (oIndex === q.correct_index ? 'bg-darkGreen/40 border-neonGreen text-white' : (answers[qIndex] === oIndex ? 'bg-lilacDark/40 border-lilac text-white' : 'opacity-50 border-gray-800 text-gray-500'))"
+                                        class="text-left px-4 py-3 rounded-xl border transition-all">
+                                        {{ opt }}
+                                    </button>
+                                </div>
+                                <div v-if="answers[qIndex] !== undefined" class="mt-4 p-4 rounded-xl text-sm" :class="answers[qIndex] === q.correct_index ? 'bg-darkGreen/20 text-neonGreen border border-darkGreen' : 'bg-lilacDark/20 text-lilac border border-lilacDark'">
+                                    <strong>Açıklama:</strong> {{ q.explanation_tr }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </transition>
+
+            <!-- READING INPUT TAB -->
+            <transition name="fade" mode="out-in">
+                <div v-if="currentTab === 'reading' && !readingData" class="space-y-6">
+                    <div class="glass-card p-6 sm:p-8">
+                        <h2 class="text-2xl font-semibold mb-4 text-white">Ne hakkında okumak istersin?</h2>
+                        <div class="flex flex-col sm:flex-row gap-4 mb-4">
+                            <select v-model="readingForm.level" class="p-3 rounded-xl focus:ring-2 focus:ring-lilac outline-none">
+                                <option value="A1">A1</option><option value="A2">A2</option><option value="B1">B1</option><option value="B2">B2</option>
+                            </select>
+                            <input v-model="readingForm.topic" type="text" placeholder="Örn: Uzay (Boş bırakırsan sürpriz olur!)" class="flex-grow p-3 rounded-xl focus:ring-2 focus:ring-lilac outline-none">
+                            <button @click="generateReading" class="bg-gradient-to-r from-lilacDark to-lilac text-white font-medium py-3 px-6 rounded-xl transition-all">Oluştur 🚀</button>
+                        </div>
+                    </div>
+                </div>
+            </transition>
+
+            <!-- FILE UPLOAD TAB -->
+            <transition name="fade" mode="out-in">
+                <div v-if="currentTab === 'file' && !readingData" class="space-y-6">
+                    <div class="glass-card p-6 sm:p-8">
+                        <h2 class="text-2xl font-semibold mb-2 text-white">Dosyadan Metin Analizi 📄</h2>
+                        <div class="flex flex-col items-center justify-center border-2 border-dashed border-gray-600 rounded-xl p-10 mb-4 hover:border-lilac transition-all">
+                            <input type="file" ref="fileInput" @change="handleFileChange" accept=".pdf,.txt" class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-lilacDark file:text-white hover:file:bg-lilac cursor-pointer">
+                        </div>
+                        <div class="flex justify-end">
+                            <button @click="analyzeFile" :disabled="!selectedFile" class="bg-gradient-to-r from-lilacDark to-lilac disabled:opacity-50 text-white font-medium py-3 px-8 rounded-xl">Dosyayı Analiz Et 🚀</button>
+                        </div>
+                    </div>
+                </div>
+            </transition>
+
+            <!-- WRITING TAB -->
+            <transition name="fade" mode="out-in">
+                <div v-if="currentTab === 'writing'" class="space-y-6">
+                    <div class="glass-card p-6 sm:p-8">
+                        <h2 class="text-2xl font-semibold mb-2 text-white">Yazma Pratiği ✍️</h2>
+                        <div class="flex flex-col sm:flex-row gap-3 mb-4">
+                            <input v-model="writingForm.topic" type="text" placeholder="Konu (İstersen boş bırakıp butona basabilirsin)" class="flex-grow p-3 rounded-xl outline-none">
+                            <button @click="suggestRandomTopic" class="bg-gray-700 hover:bg-gray-600 text-lilac font-medium px-4 py-3 rounded-xl transition-all border border-gray-600 whitespace-nowrap">🎲 Konu Öner</button>
+                        </div>
+                        <textarea v-model="writingForm.user_text" rows="8" placeholder="Start typing in English here..." class="w-full p-4 rounded-xl mb-4 outline-none resize-none text-lg leading-relaxed"></textarea>
+                        <div class="flex justify-end">
+                            <button @click="evaluateWriting" :disabled="!writingForm.user_text" class="bg-gradient-to-r from-lilacDark to-lilac disabled:opacity-50 text-white font-medium py-3 px-8 rounded-xl">Gönder ve Değerlendir 🚀</button>
+                        </div>
+                    </div>
+
+                    <div v-if="writingFeedback" class="glass-card p-6 sm:p-8 space-y-6">
+                        <h3 class="text-xl font-bold text-lilac mb-2">Konu: {{ writingFeedback.topic }}</h3>
+                        <div class="flex items-center justify-between border-b border-gray-700 pb-4">
+                            <h4 class="text-2xl font-bold text-white">Değerlendirme Sonucu</h4>
+                            <div class="w-16 h-16 rounded-full border-4 flex items-center justify-center" :class="writingFeedback.overall_score > 70 ? 'border-neonGreen text-neonGreen' : 'border-lilacDark text-lilac'">
+                                <span class="text-xl font-bold">{{ writingFeedback.overall_score }}</span>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800 p-5 rounded-2xl border border-gray-600">{{ writingFeedback.feedback_tr }}</div>
+                        <div class="space-y-3">
+                            <div v-for="corr in writingFeedback.corrections" class="bg-darkcard border border-gray-700 rounded-xl p-4 flex flex-col sm:flex-row gap-4 items-center">
+                                <div class="flex-1"><p class="text-lilacDark line-through text-sm">{{ corr.original }}</p><p class="text-neonGreen font-medium">{{ corr.corrected }}</p></div>
+                                <div class="flex-1 bg-gray-800 p-3 rounded-lg text-sm text-gray-400">{{ corr.explanation_tr }}</div>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 font-medium whitespace-pre-wrap">{{ writingFeedback.improved_text }}</div>
+                    </div>
+                </div>
+            </transition>
+
+            <!-- YENİ: SPEAKING (KONUŞMA) TAB -->
+            <transition name="fade" mode="out-in">
+                <div v-if="currentTab === 'speaking'" class="space-y-6">
+                    <div class="glass-card p-6 sm:p-8">
+                        <h2 class="text-2xl font-semibold mb-2 text-white">Konuşma ve Telaffuz Pratiği 🎙️</h2>
+                        <p class="text-gray-400 mb-6">Mikrofona tıkla ve konuş. Yapay zeka sesini dinleyecek, yazıya dökecek ve telaffuz hatalarını yakalayacak!</p>
+                        
+                        <div class="flex flex-col sm:flex-row gap-3 mb-6">
+                            <input v-model="speakingForm.topic" type="text" placeholder="Ne hakkında konuşacaksın? (İsteğe bağlı)" class="flex-grow p-3 rounded-xl outline-none">
+                            <button @click="suggestSpeakingTopic" class="bg-gray-700 hover:bg-gray-600 text-neonGreen font-medium px-4 py-3 rounded-xl transition-all border border-gray-600 whitespace-nowrap">
+                                🎲 Konu Öner
+                            </button>
+                        </div>
+
+                        <!-- Mikrofon Kayıt Alanı -->
+                        <div class="flex flex-col items-center justify-center py-10 border-2 border-dashed border-gray-600 rounded-2xl bg-darkcard/50 transition-all">
+                            
+                            <!-- Büyük Mikrofon Butonu -->
+                            <button @click="isRecording ? stopRecording() : startRecording()" 
+                                :class="isRecording ? 'bg-red-500 text-white recording-active' : 'bg-gradient-to-r from-lilacDark to-lilac text-white hover:scale-105'"
+                                class="w-24 h-24 rounded-full flex items-center justify-center text-4xl shadow-xl transition-transform duration-300">
+                                {{ isRecording ? '⏹️' : '🎤' }}
+                            </button>
+                            
+                            <p class="mt-6 text-lg font-medium" :class="isRecording ? 'text-red-400 animate-pulse' : 'text-gray-400'">
+                                {{ isRecording ? 'Dinleniyor... (Durdurmak için kareye bas)' : 'Konuşmaya başlamak için mikrofona tıkla' }}
+                            </p>
+
+                            <!-- Kayıt Bittikten Sonra Çıkan Kontroller -->
+                            <div v-if="audioUrl" class="mt-8 w-full max-w-md flex flex-col items-center gap-4 bg-gray-800 p-4 rounded-xl border border-gray-700">
+                                <span class="text-sm text-gray-400 font-medium">Kaydın hazır. Dinleyebilir veya analiz için gönderebilirsin.</span>
+                                <audio :src="audioUrl" controls class="w-full"></audio>
+                                <button @click="evaluateSpeaking" class="w-full mt-2 bg-neonGreen text-black font-bold py-3 px-6 rounded-xl hover:bg-emerald-400 shadow-[0_0_15px_rgba(0,250,154,0.3)] transition-all">
+                                    Gönder ve Analiz Et 🚀
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Konuşma Sonuç Ekranı -->
+                    <div v-if="speakingFeedback" class="glass-card p-6 sm:p-8 space-y-6">
+                        <div class="flex items-center justify-between border-b border-gray-700 pb-4">
+                            <h4 class="text-2xl font-bold text-white">Konuşma Analizi</h4>
+                            <div class="w-16 h-16 rounded-full border-4 flex items-center justify-center" :class="speakingFeedback.overall_score > 70 ? 'border-neonGreen text-neonGreen' : 'border-lilacDark text-lilac'">
+                                <span class="text-xl font-bold">{{ speakingFeedback.overall_score }}</span>
+                            </div>
+                        </div>
+                        
+                        <!-- AI'nin Duyduğu Metin (Transkript) -->
+                        <div>
+                            <h5 class="text-sm text-gray-400 font-bold uppercase tracking-wider mb-2">Seni Şöyle Duydum:</h5>
+                            <div class="bg-gray-800 p-5 rounded-2xl border border-gray-600 text-gray-200 text-lg leading-relaxed italic">
+                                "{{ speakingFeedback.transcribed_text }}"
+                            </div>
+                        </div>
+
+                        <!-- Geri Bildirim -->
+                        <div class="bg-darkGreen/10 border border-darkGreen/50 p-5 rounded-2xl text-neonGreen">
+                            {{ speakingFeedback.feedback_tr }}
+                        </div>
+                        
+                        <!-- Telaffuz ve Gramer Düzeltmeleri -->
+                        <div v-if="speakingFeedback.corrections && speakingFeedback.corrections.length > 0" class="space-y-3">
+                            <h5 class="text-sm text-gray-400 font-bold uppercase tracking-wider mt-4">Hatalar ve Düzeltmeler:</h5>
+                            <div v-for="corr in speakingFeedback.corrections" class="bg-darkcard border border-gray-700 rounded-xl p-4 flex flex-col sm:flex-row gap-4 items-center">
+                                <div class="flex-1"><p class="text-red-400 line-through text-sm">{{ corr.original }}</p><p class="text-neonGreen font-medium">{{ corr.corrected }}</p></div>
+                                <div class="flex-1 bg-gray-800 p-3 rounded-lg text-sm text-gray-300">{{ corr.explanation_tr }}</div>
+                            </div>
+                        </div>
+                        
+                        <!-- İdeal Metin -->
+                        <div>
+                            <h5 class="text-sm text-gray-400 font-bold uppercase tracking-wider mt-4">Şöyle Söylesen Harika Olurdu:</h5>
+                            <div class="bg-gradient-to-r from-gray-800 to-gray-700 p-6 rounded-2xl border border-gray-600 font-medium text-white whitespace-pre-wrap">{{ speakingFeedback.improved_text }}</div>
+                        </div>
+                    </div>
+                </div>
+            </transition>
+
+            <!-- HISTORY TAB -->
+            <transition name="fade" mode="out-in">
+                <div v-if="currentTab === 'history'" class="glass-card p-6 sm:p-8 flex flex-col h-full">
+                    <div class="flex justify-between items-start mb-6">
+                        <div>
+                            <h2 class="text-2xl font-bold mb-2 text-white">Geçmiş Çalışmaların 📚</h2>
+                            <p class="text-sm text-gray-400">İncelemek için başlığa tıkla.</p>
+                        </div>
+                        <div class="flex gap-2 bg-gray-800 p-1 rounded-lg">
+                            <button @click="showStarredOnly = false; fetchHistory(1)" :class="!showStarredOnly ? 'bg-lilacDark text-white' : 'text-gray-400 hover:text-white'" class="px-3 py-1 rounded-md text-sm font-medium transition-all">Tümü</button>
+                            <button @click="showStarredOnly = true; fetchHistory(1)" :class="showStarredOnly ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'" class="px-3 py-1 rounded-md text-sm font-medium transition-all">⭐ Yıldızlılar</button>
+                        </div>
+                    </div>
+
+                    <div v-if="history.length === 0" class="text-center text-gray-500 py-10 flex-grow">
+                        {{ showStarredOnly ? 'Henüz yıldızlanmış bir çalışman yok.' : 'Henüz geçmiş çalışman yok.' }}
+                    </div>
+                    
+                    <div class="space-y-4 flex-grow">
+                        <div v-for="item in history" :key="item.id" @click="loadFromHistory(item)" class="bg-darkcard border border-gray-700 p-4 rounded-xl flex justify-between items-center cursor-pointer hover:border-lilac transition-all group">
+                            <div class="flex items-center gap-3 truncate">
+                                <!-- History Renklendirme -->
+                                <span class="px-3 py-1 rounded-full text-xs font-bold shrink-0" 
+                                    :class="(item.type === 'reading' || item.type === 'file') ? 'bg-bordo/20 text-lilac border border-bordo' : 
+                                            (item.type === 'speaking' ? 'bg-blue-900/40 text-blue-400 border border-blue-900' : 'bg-darkGreen/20 text-neonGreen border border-darkGreen')">
+                                    {{ item.type === 'reading' ? 'Okuma' : item.type === 'file' ? 'Dosya' : item.type === 'speaking' ? 'Konuşma' : 'Yazma' }}
+                                </span>
+                                <span class="font-semibold text-gray-200 text-lg truncate">{{ item.topic }}</span>
+                            </div>
+                            <div class="flex items-center gap-4 shrink-0">
+                                <span class="text-xs text-gray-400 hidden sm:block">{{ item.created_at }}</span>
+                                <div class="flex items-center gap-2">
+                                    <button @click="toggleStarItem(item, $event)" class="text-xl transition-all hover:scale-110" :class="item.is_starred ? 'text-yellow-400' : 'text-gray-600 hover:text-yellow-400'">
+                                        {{ item.is_starred ? '★' : '☆' }}
+                                    </button>
+                                    <button @click="deleteHistoryItem(item, $event)" class="text-lg text-gray-600 hover:text-red-500 transition-all ml-2" title="Sil">
+                                        🗑️
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div v-if="historyTotalPages > 1" class="flex justify-center items-center gap-4 mt-8 pt-4 border-t border-gray-800">
+                        <button @click="fetchHistory(historyPage - 1)" :disabled="historyPage === 1" class="px-4 py-2 bg-gray-800 rounded-lg text-gray-300 disabled:opacity-30 hover:bg-gray-700 transition-all font-medium">← Önceki</button>
+                        <span class="text-gray-400 font-medium">Sayfa {{ historyPage }} / {{ historyTotalPages }}</span>
+                        <button @click="fetchHistory(historyPage + 1)" :disabled="historyPage === historyTotalPages" class="px-4 py-2 bg-gray-800 rounded-lg text-gray-300 disabled:opacity-30 hover:bg-gray-700 transition-all font-medium">Sonraki →</button>
+                    </div>
+                </div>
+            </transition>
+        </main>
+
+        <!-- Yukarı Çık Butonu -->
+        <transition name="fade">
+            <button v-if="showScrollTop" @click="scrollToTop" class="fixed bottom-6 right-6 sm:bottom-10 sm:right-10 w-14 h-14 bg-gradient-to-br from-lilacDark to-lilac text-white rounded-full shadow-[0_0_20px_rgba(153,102,204,0.5)] flex items-center justify-center text-2xl font-bold hover:scale-110 hover:-translate-y-1 transition-all z-50 border border-gray-600" title="En Üste Çık">↑</button>
+        </transition>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, computed, onMounted, onUnmounted } = Vue; 
+        
+        createApp({
+            setup() {
+                const currentTab = ref('reading');
+                const loading = ref(false);
+                const loadingMsg = ref('');
+                
+                const readingForm = reactive({ level: 'B1', topic: '' });
+                const readingData = ref(null);
+                const answers = ref({});
+                const blankAnswers = ref({});
+                
+                const writingForm = reactive({ topic: '', user_text: '' });
+                const writingFeedback = ref(null);
+                const selectedFile = ref(null);
+                
+                // Konuşma Değişkenleri
+                const speakingForm = reactive({ topic: '' });
+                const speakingFeedback = ref(null);
+                const isRecording = ref(false);
+                const audioUrl = ref(null);
+                let mediaRecorder = null;
+                let audioChunks = [];
+                let audioBlob = null;
+                
+                const history = ref([]);
+                const historyPage = ref(1);
+                const historyTotalPages = ref(1);
+                const showStarredOnly = ref(false);
+                
+                const activePopup = ref(null);
+                const popupX = ref(0);
+                const popupY = ref(0);
+                const API = '/api';
+                const showScrollTop = ref(false);
+
+                const handleScroll = () => { showScrollTop.value = window.scrollY > 300; };
+                const scrollToTop = () => { window.scrollTo({ top: 0, behavior: 'smooth' }); };
+                onMounted(() => { window.addEventListener('scroll', handleScroll); });
+                onUnmounted(() => { window.removeEventListener('scroll', handleScroll); });
+
+                const parsedPassage = computed(() => {
+                    if (!readingData.value) return [];
+                    const rawText = readingData.value.passage || "";
+                    if (!rawText) return [];
+                    const paragraphs = rawText.split('\n').filter(p => p.trim() !== '');
+                    return paragraphs.map(p => {
+                        const regex = /([a-zA-ZçğıöşüÇĞİÖŞÜ]+)(\s*)/g;
+                        let match, tokens = [], lastIndex = 0;
+                        while ((match = regex.exec(p)) !== null) {
+                            if (match.index > lastIndex) tokens.push({ isWord: false, text: p.substring(lastIndex, match.index) });
+                            tokens.push({ isWord: true, word: match[1], space: match[2] });
+                            lastIndex = regex.lastIndex;
+                        }
+                        if (lastIndex < p.length) tokens.push({ isWord: false, text: p.substring(lastIndex) });
+                        return tokens;
+                    });
+                });
+
+                const selectBlankOption = (bIndex, oIndex) => {
+                    const item = readingData.value.fill_in_blanks[bIndex];
+                    blankAnswers.value[bIndex] = { selected: oIndex, isCorrect: (oIndex === item.correct_index), showExplanation: true };
+                };
+
+                const getBlankButtonClass = (bIndex, oIndex, correctIndex) => {
+                    if (!blankAnswers.value[bIndex]) return 'bg-gray-700 hover:bg-gray-600 border-gray-500 text-white';
+                    const ans = blankAnswers.value[bIndex];
+                    if (ans.isCorrect) {
+                        return oIndex === correctIndex ? 'bg-darkGreen/40 border-neonGreen text-white' : 'opacity-50 border-gray-800 text-gray-500 bg-gray-800';
+                    } else {
+                        if (oIndex === ans.selected) return 'bg-bordo/40 border-red-500 text-white';
+                        if (oIndex === correctIndex) return 'bg-gray-700 border-gray-500 hover:bg-gray-600 text-white'; 
+                        return 'opacity-50 border-gray-800 text-gray-500 bg-gray-800';
+                    }
+                };
+
+                const translateWord = async (word, event) => {
+                    popupX.value = event.clientX + 10; popupY.value = event.clientY + 10;
+                    activePopup.value = { word: word, translation: "Aranıyor..." };
+                    try {
+                        const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|tr`);
+                        const data = await res.json();
+                        if (data && data.responseData) activePopup.value = { word: word, translation: data.responseData.translatedText };
+                    } catch (e) { activePopup.value = { word: word, translation: "Hata." }; }
+                    setTimeout(() => { window.addEventListener('click', closePopup, { once: true }); }, 100);
+                };
+                const closePopup = () => { activePopup.value = null; };
+
+                const suggestRandomTopic = () => {
+                    const t = ["A memorable journey", "The impact of AI", "Historical era you'd visit", "Lifelong learning"];
+                    writingForm.topic = t[Math.floor(Math.random() * t.length)];
+                };
+                
+                const suggestSpeakingTopic = () => {
+                    const t = ["Describe your ideal weekend", "What are your goals for next year?", "Talk about a movie you love", "The advantages of living in a city"];
+                    speakingForm.topic = t[Math.floor(Math.random() * t.length)];
+                };
+
+                const handleFileChange = (e) => { selectedFile.value = e.target.files[0]; };
+
+                const analyzeFile = async () => {
+                    if (!selectedFile.value) return;
+                    loadingMsg.value = "Dosya okunuyor... 📄✨"; loading.value = true; 
+                    readingData.value = null; answers.value = {}; blankAnswers.value = {};
+                    const formData = new FormData(); formData.append("file", selectedFile.value);
+                    try {
+                        const res = await fetch(`${API}/file/analyze`, { method: 'POST', body: formData });
+                        const data = await res.json();
+                        if(res.ok) { readingData.value = data; selectedFile.value = null; } else alert(data.detail);
+                    } catch (e) { alert("Bağlantı hatası!"); }
+                    loading.value = false;
+                };
+
+                const generateReading = async () => {
+                    loadingMsg.value = "Metin hazırlanıyor... ✨"; loading.value = true; 
+                    readingData.value = null; answers.value = {}; blankAnswers.value = {};
+                    try {
+                        const res = await fetch(`${API}/reading/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(readingForm) });
+                        const data = await res.json();
+                        if(res.ok) readingData.value = data; else alert(data.detail);
+                    } catch (e) { alert("Bağlantı hatası!"); }
+                    loading.value = false;
+                };
+
+                const evaluateWriting = async () => {
+                    loadingMsg.value = "Yazın analiz ediliyor... 🔍"; loading.value = true; writingFeedback.value = null;
+                    try {
+                        const res = await fetch(`${API}/writing/evaluate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(writingForm) });
+                        const data = await res.json();
+                        if(res.ok) writingFeedback.value = data; else alert(data.detail);
+                    } catch (e) { alert("Bağlantı hatası!"); }
+                    loading.value = false;
+                };
+
+                // KONUŞMA KAYIT VE GÖNDERME FONKSİYONLARI
+                const startRecording = async () => {
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        mediaRecorder = new MediaRecorder(stream);
+                        audioChunks = [];
+
+                        mediaRecorder.ondataavailable = event => {
+                            if (event.data.size > 0) audioChunks.push(event.data);
+                        };
+
+                        mediaRecorder.onstop = () => {
+                            audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                            audioUrl.value = URL.createObjectURL(audioBlob);
+                            stream.getTracks().forEach(track => track.stop()); // Mikrofon donanımını kapat
+                        };
+
+                        mediaRecorder.start();
+                        isRecording.value = true;
+                        speakingFeedback.value = null;
+                        audioUrl.value = null;
+                    } catch (err) {
+                        alert("Ses kaydetmek için mikrofon erişimine izin vermeniz gerekiyor!");
+                    }
+                };
+
+                const stopRecording = () => {
+                    if (mediaRecorder && isRecording.value) {
+                        mediaRecorder.stop();
+                        isRecording.value = false;
+                    }
+                };
+
+                const evaluateSpeaking = async () => {
+                    if (!audioBlob) return;
+                    loadingMsg.value = "Sesin yazıya dökülüyor ve telaffuzun analiz ediliyor... 🎙️✨";
+                    loading.value = true;
+                    
+                    const formData = new FormData();
+                    formData.append("audio", audioBlob, "recording.webm");
+                    formData.append("topic", speakingForm.topic);
+
+                    try {
+                        const res = await fetch(`${API}/speaking/evaluate`, { method: 'POST', body: formData });
+                        const data = await res.json();
+                        if(res.ok) speakingFeedback.value = data;
+                        else alert(data.detail);
+                    } catch (e) {
+                        alert("Bağlantı hatası!");
+                    }
+                    loading.value = false;
+                };
+
+                const fetchHistory = async (page = 1) => {
+                    try {
+                        const res = await fetch(`${API}/history?page=${page}&limit=10&starred=${showStarredOnly.value}`);
+                        const data = await res.json();
+                        history.value = data.history; historyPage.value = data.current_page; historyTotalPages.value = data.total_pages;
+                    } catch (e) { console.error(e); }
+                };
+
+                const toggleStarItem = async (item, event) => {
+                    event.stopPropagation();
+                    try {
+                        const res = await fetch(`${API}/history/${item.id}/star`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_starred: !item.is_starred }) });
+                        if (res.ok) { item.is_starred = !item.is_starred; if (showStarredOnly.value && !item.is_starred) fetchHistory(historyPage.value); }
+                    } catch(e) {}
+                };
+
+                const deleteHistoryItem = async (item, event) => {
+                    event.stopPropagation();
+                    if (item.is_starred) { alert("Yıldızlı kayıtlar silinemez!"); return; }
+                    if (confirm(`Emin misiniz?`)) {
+                        try {
+                            const res = await fetch(`${API}/history/${item.id}`, { method: 'DELETE' });
+                            if (res.ok) fetchHistory(historyPage.value); else { const err = await res.json(); alert(err.detail); }
+                        } catch(e) {}
+                    }
+                };
+
+                const loadFromHistory = (item) => {
+                    if (item.type === 'reading' || item.type === 'file') {
+                        try { readingData.value = JSON.parse(item.content); answers.value = {}; blankAnswers.value = {}; currentTab.value = 'reading'; } catch(e) {}
+                    } else if (item.type === 'writing') {
+                        try { writingFeedback.value = JSON.parse(item.feedback); writingForm.user_text = item.content; writingForm.topic = item.topic; currentTab.value = 'writing'; } catch(e) {}
+                    } else if (item.type === 'speaking') {
+                        try { speakingFeedback.value = JSON.parse(item.feedback); speakingForm.topic = item.topic; currentTab.value = 'speaking'; } catch(e) {}
+                    }
+                };
+
+                return { 
+                    currentTab, loading, loadingMsg, readingForm, readingData, answers, blankAnswers, 
+                    generateReading, writingForm, writingFeedback, evaluateWriting, 
+                    speakingForm, speakingFeedback, isRecording, audioUrl, startRecording, stopRecording, evaluateSpeaking, suggestSpeakingTopic,
+                    history, historyPage, historyTotalPages, showStarredOnly, fetchHistory, loadFromHistory, toggleStarItem, deleteHistoryItem, 
+                    suggestRandomTopic, parsedPassage, translateWord, activePopup, popupX, popupY, handleFileChange, analyzeFile, selectedFile, selectBlankOption, getBlankButtonClass, showScrollTop, scrollToTop 
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
