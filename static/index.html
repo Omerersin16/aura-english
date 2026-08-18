@@ -69,8 +69,7 @@
         </div>
 
         <main class="flex-grow">
-            
-            <!-- KONUŞMA SEKMESİ (GÜNCELLENMİŞ) -->
+            <!-- KONUŞMA SEKMESİ -->
             <transition name="fade" mode="out-in">
                 <div v-if="currentTab === 'speaking'" class="space-y-6">
                     
@@ -84,7 +83,7 @@
                         </button>
                     </div>
 
-                    <!-- MOD 1: KENDİNİ TEST ET (Klasik Ses Kaydı ve Analiz) -->
+                    <!-- MOD 1: KENDİNİ TEST ET -->
                     <div v-if="speakingMode === 'test'" class="space-y-6">
                         <div class="glass-card p-6 sm:p-8">
                             <h2 class="text-2xl font-semibold mb-2 text-white">Konuşma ve Telaffuz Analizi 🎙️</h2>
@@ -113,6 +112,13 @@
                                 <h4 class="text-2xl font-bold text-white">Konuşma Analizi</h4>
                                 <div class="w-16 h-16 rounded-full border-4 flex items-center justify-center" :class="speakingFeedback.overall_score > 70 ? 'border-neonGreen text-neonGreen' : 'border-lilacDark text-lilac'"><span class="text-xl font-bold">{{ speakingFeedback.overall_score }}</span></div>
                             </div>
+                            
+                            <!-- KULLANICI SESİNİ ÇALMA BÖLÜMÜ -->
+                            <div v-if="speakingFeedback.user_audio_url" class="bg-gray-800/50 p-4 rounded-2xl border border-gray-700 flex flex-col items-center gap-2 mb-2">
+                                <span class="text-xs text-gray-400 uppercase tracking-widest font-bold">Kendi Kaydını Dinle</span>
+                                <audio :src="speakingFeedback.user_audio_url" controls class="w-full max-w-sm h-10 outline-none"></audio>
+                            </div>
+
                             <div>
                                 <h5 class="text-sm text-gray-400 font-bold uppercase tracking-wider mb-2">Seni Şöyle Duydum:</h5>
                                 <div class="bg-gray-800 p-5 rounded-2xl border border-gray-600 text-gray-200 text-lg leading-relaxed italic">"{{ speakingFeedback.transcribed_text }}"</div>
@@ -125,10 +131,18 @@
                                     <div class="flex-1 bg-gray-800 p-3 rounded-lg text-sm text-gray-300">{{ corr.explanation_tr }}</div>
                                 </div>
                             </div>
+                            
+                            <!-- İYİLEŞTİRİLMİŞ METNİ DİNLEME -->
+                            <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 font-medium relative group">
+                                <div class="text-gray-200 mb-4">{{ speakingFeedback.improved_text }}</div>
+                                <button @click="playAIAudio(speakingFeedback.improved_text)" class="absolute bottom-4 right-4 bg-lilacDark hover:bg-lilac text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md transition-all flex items-center gap-2">
+                                    🔊 AI'dan Dinle
+                                </button>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- MOD 2: KARŞILIKLI KONUŞ (YENİ SOHBET ARAYÜZÜ) -->
+                    <!-- MOD 2: KARŞILIKLI KONUŞ -->
                     <div v-if="speakingMode === 'chat'" class="glass-card p-6 sm:p-8 flex flex-col h-[700px] relative">
                         <h2 class="text-2xl font-semibold mb-4 text-white flex items-center justify-between border-b border-gray-700 pb-4">
                             <span class="flex items-center gap-2">Sohbet Arkadaşın AI 🤖</span>
@@ -136,7 +150,7 @@
                             <span v-if="chatIsPlaying" class="text-sm text-lilac animate-pulse bg-lilacDark/20 px-3 py-1 rounded-lg">AI Konuşuyor 🔊</span>
                         </h2>
 
-                        <!-- Sohbet Ekranı (Baloncuklar) -->
+                        <!-- Sohbet Ekranı -->
                         <div class="flex-grow overflow-y-auto bg-[#18181E] rounded-2xl p-4 sm:p-6 space-y-5 border border-gray-700 mb-6" id="chatContainer">
                             <div v-if="chatHistory.length === 0" class="text-center text-gray-500 flex flex-col items-center justify-center h-full">
                                 <span class="text-6xl mb-4">👋</span>
@@ -144,12 +158,13 @@
                                 <p class="text-sm">Mikrofona tıklayıp konuşmaya başla. <br>Örnek: <strong class="text-white">"Hello, how are you today?"</strong></p>
                             </div>
                             
-                            <!-- Mesaj Balonları -->
                             <div v-for="(msg, index) in chatHistory" :key="index" class="flex flex-col" :class="msg.role === 'user' ? 'items-end' : 'items-start'">
                                 <span class="text-xs text-gray-500 mb-1 px-1">{{ msg.role === 'user' ? 'Sen' : 'Aura AI' }}</span>
-                                <div class="max-w-[85%] p-4 rounded-2xl shadow-md text-[15px] leading-relaxed" 
+                                <div class="max-w-[85%] p-4 rounded-2xl shadow-md text-[15px] leading-relaxed relative" 
                                      :class="msg.role === 'user' ? 'bg-lilacDark text-white rounded-tr-sm' : 'bg-gray-700 text-gray-100 rounded-tl-sm border border-gray-600'">
                                     {{ msg.text }}
+                                    <!-- AI mesajını tekrar dinle butonu -->
+                                    <button v-if="msg.role === 'ai'" @click="playAIAudio(msg.text)" class="mt-2 text-xs bg-gray-800 px-2 py-1 rounded border border-gray-600 hover:bg-lilac transition-colors block">🔊 Tekrar Dinle</button>
                                 </div>
                             </div>
                         </div>
@@ -166,13 +181,12 @@
                             </p>
                         </div>
                         
-                        <!-- Gizli Ses Oynatıcı (AI'ın sesi için) -->
                         <audio ref="chatAudioPlayer" class="hidden" @ended="chatIsPlaying = false" @play="chatIsPlaying = true"></audio>
                     </div>
                 </div>
             </transition>
 
-            <!-- KELİME KASASI SEKMESİ (Geçmişin içinden açılan) -->
+            <!-- KELİME KASASI SEKMESİ -->
             <transition name="fade" mode="out-in">
                 <div v-if="currentTab === 'vocabulary'" class="glass-card p-6 sm:p-8 flex flex-col h-full">
                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
@@ -197,10 +211,15 @@
                              :class="{ 'flipped': word.flipped }" 
                              @click="word.flipped = !word.flipped">
                             <div class="flashcard-inner w-full h-full relative">
+                                <!-- KARTIN ÖN YÜZÜ (İNGİLİZCE KELİME VE SESLENDİRME İKONU) -->
                                 <div class="flashcard-front absolute w-full h-full bg-darkcard border border-gray-600 rounded-2xl flex flex-col items-center justify-center p-4 hover:border-lilac transition-all shadow-lg">
-                                    <h3 class="text-2xl font-bold text-white">{{ word.word }}</h3>
+                                    <div class="flex items-center justify-center gap-3">
+                                        <h3 class="text-2xl font-bold text-white">{{ word.word }}</h3>
+                                        <button @click.stop="speakBrowserNative(word.word)" class="text-gray-400 hover:text-white transition-transform hover:scale-125 text-xl" title="Telaffuzu Dinle">🔊</button>
+                                    </div>
                                     <span class="text-xs text-gray-500 mt-2">Çevirisi için tıkla</span>
                                 </div>
+                                <!-- KARTIN ARKA YÜZÜ (TÜRKÇE ÇEVİRİ) -->
                                 <div class="flashcard-back absolute w-full h-full bg-gray-800 border border-lilacDark rounded-2xl flex flex-col items-center justify-center p-4 shadow-[0_0_15px_rgba(153,102,204,0.2)]">
                                     <h3 class="text-xl font-bold text-neonGreen text-center">{{ word.translation }}</h3>
                                     <div class="flex gap-3 mt-6">
@@ -289,15 +308,18 @@
                             </p>
                         </div>
 
-                        <!-- GOOGLE TRANSLATE DESTEKLİ ÇEVİRİ BALONU -->
+                        <!-- GOOGLE TRANSLATE DESTEKLİ ÇEVİRİ VE NATIVE SESLENDİRME BALONU -->
                         <div v-if="activePopup" @click.stop class="fixed z-50 bg-gray-900 border border-lilac text-white p-4 rounded-xl shadow-2xl min-w-[220px]" :style="{ top: popupY + 'px', left: popupX + 'px' }">
                             <div class="flex justify-between items-start gap-4">
                                 <div>
-                                    <div class="font-bold text-neonGreen mb-1 text-lg uppercase">{{ activePopup.word }}</div>
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <div class="font-bold text-neonGreen text-lg uppercase">{{ activePopup.word }}</div>
+                                        <button @click="speakBrowserNative(activePopup.word)" class="text-gray-300 hover:text-white transition-transform hover:scale-110" title="Telaffuzu Dinle">🔊</button>
+                                    </div>
                                     <div class="text-gray-200 font-medium">{{ activePopup.translation }}</div>
                                 </div>
                                 <button @click="saveWordToVault(activePopup)" class="bg-gray-800 hover:bg-lilac border border-gray-600 hover:border-lilac text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-md whitespace-nowrap">
-                                    💾 Kasaya Ekle
+                                    💾 Ekle
                                 </button>
                             </div>
                         </div>
@@ -395,7 +417,14 @@
                                 <div class="flex-1 bg-gray-800 p-3 rounded-lg text-sm text-gray-400">{{ corr.explanation_tr }}</div>
                             </div>
                         </div>
-                        <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 font-medium whitespace-pre-wrap">{{ writingFeedback.improved_text }}</div>
+                        
+                        <!-- YAZMA İÇİN İSTEĞE BAĞLI AI SESLENDİRME -->
+                        <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 font-medium relative group">
+                            <div class="text-gray-200 mb-4 whitespace-pre-wrap">{{ writingFeedback.improved_text }}</div>
+                            <button @click="playAIAudio(writingFeedback.improved_text)" class="absolute bottom-4 right-4 bg-lilacDark hover:bg-lilac text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md transition-all flex items-center gap-2">
+                                🔊 AI'dan Dinle
+                            </button>
+                        </div>
                     </div>
                 </div>
             </transition>
@@ -422,11 +451,13 @@
                     <div class="space-y-4 flex-grow">
                         <div v-for="item in history" :key="item.id" @click="loadFromHistory(item)" class="bg-darkcard border border-gray-700 p-4 rounded-xl flex justify-between items-center cursor-pointer hover:border-lilac transition-all group">
                             <div class="flex items-center gap-3 truncate">
-                                <span class="px-3 py-1 rounded-full text-xs font-bold shrink-0" 
-                                    :class="(item.type === 'reading' || item.type === 'file') ? 'bg-bordo/20 text-lilac border border-bordo' : 
-                                            (item.type === 'speaking' ? 'bg-blue-900/40 text-blue-400 border border-blue-900' : 
-                                            (item.type === 'listening' ? 'bg-orange-900/40 text-orange-400 border border-orange-900' : 'bg-darkGreen/20 text-neonGreen border border-darkGreen'))">
-                                    {{ item.type === 'reading' ? 'Okuma' : item.type === 'file' ? 'Dosya' : item.type === 'speaking' ? 'Konuşma' : item.type === 'listening' ? 'Dinleme' : 'Yazma' }}
+                                <!-- GEÇMİŞ LİSTESİ RENKLENDİRMESİ GÜNCELLENDİ -->
+                                <span class="px-3 py-1 rounded-full text-xs font-bold shrink-0 text-white" 
+                                    :class="(item.type === 'reading' || item.type === 'file') ? 'bg-bordo/80 border border-bordo' : 
+                                            (item.type === 'speaking' ? 'bg-blue-900/80 border border-blue-900' : 
+                                            (item.type === 'chat' ? 'bg-purple-900/80 border border-purple-900' : 
+                                            (item.type === 'listening' ? 'bg-orange-900/80 border border-orange-900' : 'bg-darkGreen/80 border border-darkGreen')))">
+                                    {{ item.type === 'reading' ? 'Okuma' : item.type === 'file' ? 'Dosya' : item.type === 'speaking' ? 'Pratik' : item.type === 'chat' ? 'Sohbet' : item.type === 'listening' ? 'Dinleme' : 'Yazma' }}
                                 </span>
                                 <span class="font-semibold text-gray-200 text-lg truncate">{{ item.topic }}</span>
                             </div>
@@ -466,18 +497,16 @@
                 const showLoader = (msg) => { loadingMsg.value = msg; loading.value = true; };
                 const hideLoader = () => { loading.value = false; };
                 
-                // OKUMA (READING)
                 const readingForm = reactive({ level: 'B1', topic: '' });
                 const readingData = ref(null);
                 const answers = ref({});
                 const blankAnswers = ref({});
                 
-                // YAZMA (WRITING)
                 const writingForm = reactive({ topic: '', user_text: '' });
                 const writingFeedback = ref(null);
                 const selectedFile = ref(null);
                 
-                // KONUŞMA (TEST MODU)
+                const speakingMode = ref('test'); 
                 const speakingForm = reactive({ topic: '' });
                 const speakingFeedback = ref(null);
                 const isRecording = ref(false);
@@ -486,8 +515,6 @@
                 let audioChunks = [];
                 let audioBlob = null;
 
-                // YENİ: KONUŞMA (CHAT MODU) DEĞİŞKENLERİ
-                const speakingMode = ref('test'); // 'test' veya 'chat'
                 const chatHistory = ref([]);
                 const chatIsRecording = ref(false);
                 const chatIsProcessing = ref(false);
@@ -496,19 +523,16 @@
                 let chatMediaRecorder = null;
                 let chatAudioChunks = [];
                 
-                // DİNLEME (LISTENING)
                 const listeningForm = reactive({ level: 'B2', topic: '', speakers: '2' });
                 const listeningData = ref(null);
                 const listeningAnswers = ref({});
                 const showTranscript = ref(false);
 
-                // GEÇMİŞ (HISTORY)
                 const history = ref([]);
                 const historyPage = ref(1);
                 const historyTotalPages = ref(1);
                 const showStarredOnly = ref(false);
 
-                // KELİME KASASI (VOCABULARY)
                 const vocabulary = ref([]);
                 const vocabFilter = ref('learning');
                 const activePopup = ref(null);
@@ -529,6 +553,32 @@
                     window.removeEventListener('scroll', handleScroll); 
                     window.removeEventListener('click', closePopup);
                 });
+
+                // YENİ: YERLEŞİK TARAYICI TELAFUZU (NATIVE BROWSER TTS)
+                const speakBrowserNative = (text) => {
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = 'en-US';
+                    utterance.rate = 0.85; // Telaffuz net anlaşılsın diye hafif yavaşlatıldı
+                    window.speechSynthesis.speak(utterance);
+                };
+
+                // YENİ: İSTEĞE BAĞLI AI SESLENDİRME (EDGE-TTS BACKEND ÜZERİNDEN)
+                const playAIAudio = async (text) => {
+                    try {
+                        showLoader("AI Sesi Hazırlanıyor... 🔊");
+                        const res = await fetch(`${API}/tts`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ text: text })
+                        });
+                        const data = await res.json();
+                        hideLoader();
+                        if(res.ok) {
+                            const audio = new Audio(data.audio_url);
+                            audio.play();
+                        } else alert(data.detail);
+                    } catch(e) { hideLoader(); alert("Ses bağlantı hatası!"); }
+                };
 
                 const parsedPassage = computed(() => {
                     if (!readingData.value) return [];
@@ -629,52 +679,36 @@
                 };
 
                 const suggestRandomTopic = () => {
-    const writingTopics = [
-        "The most important lesson you learned from a failure",
-        "How social media has changed human relationships",
-        "If you could live in any historical period, which would it be and why?",
-        "The pros and cons of remote work in the modern age",
-        "Describe a book or movie that completely changed your perspective",
-        "Should university education be totally free for everyone?",
-        "The ethical implications of artificial intelligence taking over jobs",
-        "A time when you had to step out of your comfort zone",
-        "How traveling to different cultures changes a person",
-        "The importance of mental health awareness in high schools",
-        "Is modern technology making us more connected or more isolated?",
-        "Describe your idea of a perfect utopian society",
-        "The role of art and music in shaping a culture",
-        "If you had unlimited resources to start a business, what would it be?",
-        "The impact of climate change on future generations",
-        "Why humans are so fascinated by the idea of exploring Mars",
-        "The difference between knowledge and wisdom",
-        "How childhood experiences shape our adult personalities",
-        "The psychology behind why people love playing video games",
-        "A detailed review of the best decision you ever made"
-    ];
-    writingForm.topic = writingTopics[Math.floor(Math.random() * writingTopics.length)];
-};
+                    const writingTopics = [
+                        "The most important lesson you learned from a failure",
+                        "How social media has changed human relationships",
+                        "If you could live in any historical period, which would it be and why?",
+                        "The pros and cons of remote work in the modern age",
+                        "Describe a book or movie that completely changed your perspective",
+                        "Should university education be totally free for everyone?",
+                        "The ethical implications of artificial intelligence taking over jobs",
+                        "A time when you had to step out of your comfort zone",
+                        "How traveling to different cultures changes a person",
+                        "The importance of mental health awareness in high schools"
+                    ];
+                    writingForm.topic = writingTopics[Math.floor(Math.random() * writingTopics.length)];
+                };
 
-const suggestSpeakingTopic = () => {
-    const speakingTopics = [
-        "Describe your absolute ideal weekend getaway",
-        "What are your biggest personal goals for the next five years?",
-        "Talk about a hobby or interest you are deeply passionate about",
-        "Describe a person who has had a massive influence on your life",
-        "What is your favorite childhood memory and why?",
-        "If you could have dinner with any famous person in history, who would it be?",
-        "Talk about a unique cultural tradition in your country",
-        "Describe the most delicious meal you have ever had",
-        "What do you think is the ultimate key to a happy life?",
-        "Talk about a difficult skill you would love to learn one day",
-        "Describe a challenging situation you successfully handled at school or work",
-        "What is your favorite way to relax after a highly stressful day?",
-        "Talk about a time you completely changed your mind about something",
-        "Describe your dream house and where it would be located",
-        "What makes a person a good friend in your opinion?",
-        "Talk about the biggest difference between your generation and your parents' generation"
-    ];
-    speakingForm.topic = speakingTopics[Math.floor(Math.random() * speakingTopics.length)];
-};
+                const suggestSpeakingTopic = () => {
+                    const speakingTopics = [
+                        "Describe your absolute ideal weekend getaway",
+                        "What are your biggest personal goals for the next five years?",
+                        "Talk about a hobby or interest you are deeply passionate about",
+                        "Describe a person who has had a massive influence on your life",
+                        "What is your favorite childhood memory and why?",
+                        "If you could have dinner with any famous person in history, who would it be?",
+                        "Talk about a unique cultural tradition in your country",
+                        "Describe the most delicious meal you have ever had",
+                        "What do you think is the ultimate key to a happy life?",
+                        "Talk about a difficult skill you would love to learn one day"
+                    ];
+                    speakingForm.topic = speakingTopics[Math.floor(Math.random() * speakingTopics.length)];
+                };
 
                 const handleFileChange = (e) => { selectedFile.value = e.target.files[0]; };
 
@@ -752,7 +786,7 @@ const suggestSpeakingTopic = () => {
                     hideLoader();
                 };
 
-                // YENİ: KONUŞMA (CHAT MODU FONKSİYONLARI)
+                // KONUŞMA (CHAT MODU FONKSİYONLARI)
                 const startChatRecording = async () => {
                     try {
                         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -845,19 +879,30 @@ const suggestSpeakingTopic = () => {
                         try { speakingFeedback.value = JSON.parse(item.feedback); speakingForm.topic = item.topic; speakingMode.value = 'test'; currentTab.value = 'speaking'; } catch(e) {}
                     } else if (item.type === 'listening') {
                         try { listeningData.value = JSON.parse(item.feedback); listeningAnswers.value = {}; showTranscript.value = false; currentTab.value = 'listening'; } catch(e) {}
+                    } else if (item.type === 'chat') { 
+                        // YENİ: SOHBET GEÇMİŞİ YÜKLEME
+                        try { 
+                            const data = JSON.parse(item.feedback); 
+                            chatHistory.value = [
+                                { role: 'user', text: data.user_text },
+                                { role: 'ai', text: data.ai_text }
+                            ]; 
+                            speakingMode.value = 'chat'; 
+                            currentTab.value = 'speaking'; 
+                        } catch(e) {} 
                     }
                 };
 
                 return { 
-                    currentTab, loading, loadingMsg, readingForm, readingData, answers, blankAnswers, 
-                    generateReading, writingForm, writingFeedback, evaluateWriting, resetWriting,
-                    speakingForm, speakingFeedback, isRecording, audioUrl, startRecording, stopRecording, evaluateSpeaking, suggestSpeakingTopic,
-                    // YENİ CHAT DÖNÜŞLERİ:
-                    speakingMode, chatHistory, chatIsRecording, chatIsProcessing, chatIsPlaying, chatAudioPlayer, startChatRecording, stopChatRecording,
-                    listeningForm, listeningData, listeningAnswers, showTranscript, generateListening,
+                    currentTab, loading, loadingMsg, 
+                    speakBrowserNative, playAIAudio, // Yeni seslendirme fonksiyonları
+                    readingForm, readingData, answers, blankAnswers, generateReading, parsedPassage, translateWord, activePopup, popupX, popupY,
+                    writingForm, writingFeedback, evaluateWriting, resetWriting, suggestRandomTopic, suggestSpeakingTopic,
+                    speakingMode, speakingForm, speakingFeedback, isRecording, audioUrl, startRecording, stopRecording, evaluateSpeaking,
+                    chatHistory, chatIsRecording, chatIsProcessing, chatIsPlaying, chatAudioPlayer, startChatRecording, stopChatRecording,
                     history, historyPage, historyTotalPages, showStarredOnly, fetchHistory, loadFromHistory, toggleStarItem, deleteHistoryItem, 
                     vocabulary, vocabFilter, filteredVocabulary, fetchVocabulary, saveWordToVault, toggleVocabStatus, deleteVocab,
-                    suggestRandomTopic, parsedPassage, translateWord, activePopup, popupX, popupY, handleFileChange, analyzeFile, selectedFile, selectBlankOption, getBlankButtonClass, showScrollTop, scrollToTop 
+                    handleFileChange, analyzeFile, selectedFile, selectBlankOption, getBlankButtonClass, showScrollTop, scrollToTop 
                 };
             }
         }).mount('#app');

@@ -85,7 +85,9 @@ def init_db():
 
 init_db()
 
+# YENİ: Kullanıcı sesleri için ayrı bir klasör oluşturuluyor
 os.makedirs("static/audio", exist_ok=True)
+os.makedirs("static/user_audio", exist_ok=True)
 
 def save_to_history(type_val: str, topic: str, content: str, feedback: str):
     if not DATABASE_URL:
@@ -195,11 +197,9 @@ async def get_ai_response(prompt: str) -> dict:
     2. Ensure ALL brackets and braces are properly closed.
     """
     
-    # 6 Kademeli Şelale (Cascade) Sistemi
     gemini_models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
     last_error = ""
 
-    # KADEME 1-4: Gemini Modelleri
     for model in gemini_models:
         try:
             print(f"⚡ [{model}] Modeline İstek Atılıyor...")
@@ -209,7 +209,6 @@ async def get_ai_response(prompt: str) -> dict:
             print(f"⚠️ {model} Başarısız ({e}). Sıradaki modele geçiliyor...")
             last_error = str(e)
             
-    # KADEME 5: Groq (GPT-OSS-120B)
     try:
         print("⚡ [Groq: openai/gpt-oss-120b] Deneniyor...")
         response_text = call_groq_api(prompt)
@@ -218,7 +217,6 @@ async def get_ai_response(prompt: str) -> dict:
         print(f"⚠️ Groq Başarısız ({e}). Son kale OpenRouter'a geçiliyor...")
         last_error = str(e)
         
-    # KADEME 6: OpenRouter (Son Kale)
     try:
         print("⚡ [OpenRouter: openrouter/free] Deneniyor...")
         response_text = call_openrouter_api(prompt)
@@ -255,21 +253,49 @@ class VocabularyRequest(BaseModel):
 class VocabStatusRequest(BaseModel):
     is_learned: bool
 
+# YENİ: İsteğe Bağlı AI Seslendirme İçin Request Modeli
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "en-US-SteffanNeural"
+
 # ==========================================
 # 5. API YÖNLENDİRMELERİ (ROUTERS)
 # ==========================================
 
 # ------------------------------------------
-# YENİ: KARŞILIKLI SOHBET UÇ NOKTASI (6 Kademeli)
+# YENİ: İSTEĞE BAĞLI AI SESLENDİRME (ON-DEMAND TTS)
+# ------------------------------------------
+@app.post("/api/tts")
+async def generate_tts(req: TTSRequest):
+    """Gelen metni anında sese çevirir ve dosya yolunu döner. Sıfırdan metin yazdırmaz."""
+    file_name = f"tts_{uuid.uuid4().hex[:8]}.mp3"
+    file_path = os.path.join("static", "audio", file_name)
+    try:
+        communicate = edge_tts.Communicate(req.text, req.voice, rate="+5%")
+        await communicate.save(file_path)
+        return {"audio_url": f"/audio/{file_name}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ses sentezleme hatası: {e}")
+
+# ------------------------------------------
+# KARŞILIKLI SOHBET UÇ NOKTASI (Kullanıcı Sesi Kaydedilir & Geçmişe Eklenir)
 # ------------------------------------------
 @app.post("/api/chat/voice")
 async def voice_chat(audio: UploadFile = File(...), history: str = Form("[]")):
     if not groq_client:
         raise HTTPException(status_code=500, detail="Groq API yapılandırılmamış.")
 
-    # 1. Kullanıcının Sesini Metne Çevir (Whisper her zaman Groq'ta çalışır)
+    audio_bytes = await audio.read()
+    
+    # 1. Kullanıcının Sesini Kaydet (static/user_audio klasörüne)
+    user_audio_filename = f"user_chat_{uuid.uuid4().hex[:8]}.webm"
+    user_audio_path = os.path.join("static", "user_audio", user_audio_filename)
+    with open(user_audio_path, "wb") as f:
+        f.write(audio_bytes)
+    user_audio_url = f"/user_audio/{user_audio_filename}"
+
+    # 2. Sesi Metne Çevir (Whisper)
     try:
-        audio_bytes = await audio.read()
         print("🎙️ Groq Whisper'a sohbet sesi gönderiliyor...")
         transcription = groq_client.audio.transcriptions.create(
             file=(audio.filename, audio_bytes),
@@ -285,7 +311,6 @@ async def voice_chat(audio: UploadFile = File(...), history: str = Form("[]")):
 
     print(f"🗣️ Sen: {user_text}")
 
-    # 2. Geçmişi Parse Et ve Sohbet Bağlamını Hazırla
     try:
         chat_history = json.loads(history)
     except:
@@ -310,7 +335,6 @@ async def voice_chat(audio: UploadFile = File(...), history: str = Form("[]")):
     ai_text = ""
     gemini_models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
     
-    # Sohbet için Gemini Serisi
     for model in gemini_models:
         try:
             print(f"⚡ [Sohbet] Gemini ({model}) deneniyor...")
@@ -327,7 +351,6 @@ async def voice_chat(audio: UploadFile = File(...), history: str = Form("[]")):
         except Exception as e:
             print(f"⚠️ Sohbet Gemini ({model}) Başarısız: {e}")
 
-    # Sohbet için Groq
     if not ai_text:
         try:
             print("⚡ [Sohbet] Groq (openai/gpt-oss-120b) deneniyor...")
@@ -341,7 +364,6 @@ async def voice_chat(audio: UploadFile = File(...), history: str = Form("[]")):
         except Exception as e:
             print(f"⚠️ Sohbet Groq Başarısız: {e}")
 
-    # Sohbet için OpenRouter
     if not ai_text:
         try:
             print("⚡ [Sohbet] OpenRouter (openrouter/free) deneniyor...")
@@ -356,11 +378,10 @@ async def voice_chat(audio: UploadFile = File(...), history: str = Form("[]")):
     if not ai_text:
         raise HTTPException(status_code=500, detail="Tüm 6 AI modeli de sohbet için çöktü.")
 
-    # AI metnini olası markdown (*) kalıntılarından temizle
     ai_text = ai_text.replace("*", "").replace("#", "")
     print(f"🤖 AI: {ai_text}")
 
-    # 4. Metni Sese Çevir (Edge-TTS)
+    # Canlı sohbetin akıcılığı için AI sesi o an mecburen oluşturulup yollanır
     print("🔊 Ses sentezleniyor (Edge-TTS)...")
     file_name = f"chat_{uuid.uuid4().hex[:8]}.mp3"
     file_path = os.path.join("static", "audio", file_name)
@@ -371,11 +392,88 @@ async def voice_chat(audio: UploadFile = File(...), history: str = Form("[]")):
     except Exception as e:
         print(f"TTS Hatası: {e}")
 
-    return {
+    chat_result = {
         "user_text": user_text,
         "ai_text": ai_text,
-        "audio_url": f"/audio/{file_name}"
+        "audio_url": f"/audio/{file_name}",
+        "user_audio_url": user_audio_url
     }
+
+    # Sohbeti Geçmişe Kaydetme
+    topic_preview = user_text[:40] + "..." if len(user_text) > 40 else user_text
+    save_to_history("chat", f"Sohbet: {topic_preview}", user_text, json.dumps(chat_result))
+
+    return chat_result
+
+# ------------------------------------------
+# KONUŞMA ANALİZ UÇ NOKTASI (Kullanıcı Sesi Kaydedilir)
+# ------------------------------------------
+@app.post("/api/speaking/evaluate")
+async def evaluate_speaking(audio: UploadFile = File(...), topic: str = Form("")):
+    if not groq_client:
+        raise HTTPException(status_code=500, detail="Groq API yapılandırılmamış.")
+        
+    audio_bytes = await audio.read()
+    
+    # 1. Kullanıcının Pratik Sesini Kaydet
+    user_audio_filename = f"user_speak_{uuid.uuid4().hex[:8]}.webm"
+    user_audio_path = os.path.join("static", "user_audio", user_audio_filename)
+    with open(user_audio_path, "wb") as f:
+        f.write(audio_bytes)
+    user_audio_url = f"/user_audio/{user_audio_filename}"
+
+    try:
+        print("🎙️ Groq Whisper'a ses gönderiliyor...")
+        transcription = groq_client.audio.transcriptions.create(
+            file=(audio.filename, audio_bytes),
+            model="whisper-large-v3",
+            response_format="verbose_json"
+        )
+        user_text = transcription.text.strip()
+        
+        if not user_text:
+            raise HTTPException(status_code=400, detail="Seste konuşma algılanamadı.")
+            
+    except Exception as e:
+        print(f"Ses işleme hatası: {e}")
+        raise HTTPException(status_code=500, detail=f"Ses metne çevrilirken hata oluştu. Detay: {str(e)}")
+
+    print(f"📝 Kullanıcının Söylediği: {user_text}")
+
+    chosen_topic = topic.strip() if topic.strip() else random.choice(RANDOM_TOPIC_POOL)
+    
+    prompt = f"""
+    Topic Context: {chosen_topic}
+    Student's Transcribed Speech: "{user_text}"
+    
+    Task:
+    1. Evaluate the speech critically. Point out specific pronunciation or phrasing errors.
+    2. Analyze for grammar, advanced vocabulary usage, and natural fluency.
+    3. Provide an overall speaking score out of 100.
+    
+    Output STRICTLY in this JSON format:
+    {{
+      "topic": "{chosen_topic}",
+      "transcribed_text": "{user_text.replace('"', "'")}",
+      "overall_score": 85,
+      "feedback_tr": "Öğretici ve detaylı değerlendirme.",
+      "corrections": [
+        {{
+          "original": "I sink we should go",
+          "corrected": "I think we should go",
+          "explanation_tr": "Telaffuz veya gramer kuralı açıklaması."
+        }}
+      ],
+      "improved_text": "A significantly improved, native-sounding version."
+    }}
+    """
+    
+    result = await get_ai_response(prompt)
+    result["transcribed_text"] = user_text
+    result["user_audio_url"] = user_audio_url # Frontend'e kendi sesini çalması için yolluyoruz
+    
+    save_to_history("speaking", chosen_topic, user_text, json.dumps(result))
+    return result
 
 # ------------------------------------------
 # DİĞER STANDART UÇ NOKTALAR
@@ -516,65 +614,6 @@ async def analyze_file(file: UploadFile = File(...)):
     """
     result = await get_ai_response(prompt)
     save_to_history("file", file.filename, json.dumps(result), "{}")
-    return result
-
-@app.post("/api/speaking/evaluate")
-async def evaluate_speaking(audio: UploadFile = File(...), topic: str = Form("")):
-    if not groq_client:
-        raise HTTPException(status_code=500, detail="Groq API yapılandırılmamış.")
-        
-    try:
-        audio_bytes = await audio.read()
-        print("🎙️ Groq Whisper'a ses gönderiliyor...")
-        
-        transcription = groq_client.audio.transcriptions.create(
-            file=(audio.filename, audio_bytes),
-            model="whisper-large-v3",
-            response_format="verbose_json"
-        )
-        user_text = transcription.text.strip()
-        
-        if not user_text:
-            raise HTTPException(status_code=400, detail="Seste konuşma algılanamadı.")
-            
-    except Exception as e:
-        print(f"Ses işleme hatası: {e}")
-        raise HTTPException(status_code=500, detail=f"Ses metne çevrilirken hata oluştu. Detay: {str(e)}")
-
-    print(f"📝 Kullanıcının Söylediği: {user_text}")
-
-    chosen_topic = topic.strip() if topic.strip() else random.choice(RANDOM_TOPIC_POOL)
-    
-    prompt = f"""
-    Topic Context: {chosen_topic}
-    Student's Transcribed Speech: "{user_text}"
-    
-    Task:
-    1. Evaluate the speech critically. Point out specific pronunciation or phrasing errors.
-    2. Analyze for grammar, advanced vocabulary usage, and natural fluency.
-    3. Provide an overall speaking score out of 100.
-    
-    Output STRICTLY in this JSON format:
-    {{
-      "topic": "{chosen_topic}",
-      "transcribed_text": "{user_text.replace('"', "'")}",
-      "overall_score": 85,
-      "feedback_tr": "Öğretici ve detaylı değerlendirme.",
-      "corrections": [
-        {{
-          "original": "I sink we should go",
-          "corrected": "I think we should go",
-          "explanation_tr": "Telaffuz veya gramer kuralı açıklaması."
-        }}
-      ],
-      "improved_text": "A significantly improved, native-sounding version."
-    }}
-    """
-    
-    result = await get_ai_response(prompt)
-    result["transcribed_text"] = user_text
-    
-    save_to_history("speaking", chosen_topic, user_text, json.dumps(result))
     return result
 
 @app.post("/api/listening/generate")
