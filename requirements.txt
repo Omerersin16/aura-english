@@ -7,3 +7,4 @@ requests
 PyPDF2
 groq
 python-multipart
+edge-tts
