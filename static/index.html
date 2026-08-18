@@ -164,7 +164,10 @@
                                      :class="msg.role === 'user' ? 'bg-lilacDark text-white rounded-tr-sm' : 'bg-gray-700 text-gray-100 rounded-tl-sm border border-gray-600'">
                                     {{ msg.text }}
                                     <!-- AI mesajını tekrar dinle butonu -->
-                                    <button v-if="msg.role === 'ai'" @click="playAIAudio(msg.text)" class="mt-2 text-xs bg-gray-800 px-2 py-1 rounded border border-gray-600 hover:bg-lilac transition-colors block">🔊 Tekrar Dinle</button>
+                                    <button v-if="msg.role === 'ai'" @click="playAIAudio(msg.text)" class="mt-2 text-xs bg-gray-800 px-2 py-1 rounded border border-gray-600 hover:bg-lilac transition-colors block text-white">🔊 Tekrar Dinle</button>
+                                    
+                                    <!-- Kullanıcı mesajını tekrar dinle butonu (YENİ EKLENDİ) -->
+                                    <button v-if="msg.role === 'user' && msg.audio_url" @click="playUserAudio(msg.audio_url)" class="mt-2 text-xs bg-gray-900/40 px-2 py-1 rounded border border-gray-400 hover:bg-gray-800 transition-colors block text-white">🎧 Kaydımı Dinle</button>
                                 </div>
                             </div>
                         </div>
@@ -211,15 +214,15 @@
                              :class="{ 'flipped': word.flipped }" 
                              @click="word.flipped = !word.flipped">
                             <div class="flashcard-inner w-full h-full relative">
-                                <!-- KARTIN ÖN YÜZÜ (İNGİLİZCE KELİME VE SESLENDİRME İKONU) -->
+                                <!-- KARTIN ÖN YÜZÜ -->
                                 <div class="flashcard-front absolute w-full h-full bg-darkcard border border-gray-600 rounded-2xl flex flex-col items-center justify-center p-4 hover:border-lilac transition-all shadow-lg">
                                     <div class="flex items-center justify-center gap-3">
                                         <h3 class="text-2xl font-bold text-white">{{ word.word }}</h3>
-                                        <button @click.stop="speakBrowserNative(word.word)" class="text-gray-400 hover:text-white transition-transform hover:scale-125 text-xl" title="Telaffuzu Dinle">🔊</button>
+                                        <button @click.stop="speakBrowserNative(word.word)" class="transition-transform hover:scale-150 hover:drop-shadow-[0_0_10px_rgba(255,0,0,0.8)] text-xl" title="Telaffuzu Dinle">❤️</button>
                                     </div>
                                     <span class="text-xs text-gray-500 mt-2">Çevirisi için tıkla</span>
                                 </div>
-                                <!-- KARTIN ARKA YÜZÜ (TÜRKÇE ÇEVİRİ) -->
+                                <!-- KARTIN ARKA YÜZÜ -->
                                 <div class="flashcard-back absolute w-full h-full bg-gray-800 border border-lilacDark rounded-2xl flex flex-col items-center justify-center p-4 shadow-[0_0_15px_rgba(153,102,204,0.2)]">
                                     <h3 class="text-xl font-bold text-neonGreen text-center">{{ word.translation }}</h3>
                                     <div class="flex gap-3 mt-6">
@@ -308,13 +311,12 @@
                             </p>
                         </div>
 
-                        <!-- GOOGLE TRANSLATE DESTEKLİ ÇEVİRİ VE NATIVE SESLENDİRME BALONU -->
                         <div v-if="activePopup" @click.stop class="fixed z-50 bg-gray-900 border border-lilac text-white p-4 rounded-xl shadow-2xl min-w-[220px]" :style="{ top: popupY + 'px', left: popupX + 'px' }">
                             <div class="flex justify-between items-start gap-4">
                                 <div>
                                     <div class="flex items-center gap-2 mb-1">
                                         <div class="font-bold text-neonGreen text-lg uppercase">{{ activePopup.word }}</div>
-                                        <button @click="speakBrowserNative(activePopup.word)" class="text-gray-300 hover:text-white transition-transform hover:scale-110" title="Telaffuzu Dinle">🔊</button>
+                                        <button @click="speakBrowserNative(activePopup.word)" class="transition-transform hover:scale-125 hover:drop-shadow-[0_0_8px_rgba(255,0,0,0.8)]" title="Telaffuzu Dinle">❤️</button>
                                     </div>
                                     <div class="text-gray-200 font-medium">{{ activePopup.translation }}</div>
                                 </div>
@@ -580,6 +582,13 @@
                     } catch(e) { hideLoader(); alert("Ses bağlantı hatası!"); }
                 };
 
+                // YENİ: KULLANICININ KENDİ KAYDINI DİNLEMESİ İÇİN
+                const playUserAudio = (url) => {
+                    if (!url) return;
+                    const audio = new Audio(url);
+                    audio.play();
+                };
+
                 const parsedPassage = computed(() => {
                     if (!readingData.value) return [];
                     const rawText = readingData.value.passage || "";
@@ -822,8 +831,8 @@
                         const data = await res.json();
                         
                         if(res.ok) {
-                            // Kullanıcı mesajı ve AI cevabını arayüze ekle
-                            chatHistory.value.push({ role: 'user', text: data.user_text });
+                            // Kullanıcı mesajı (ses linkiyle beraber) ve AI cevabını arayüze ekle
+                            chatHistory.value.push({ role: 'user', text: data.user_text, audio_url: data.user_audio_url });
                             chatHistory.value.push({ role: 'ai', text: data.ai_text });
 
                             // Sohbeti en aşağıya kaydır
@@ -880,11 +889,11 @@
                     } else if (item.type === 'listening') {
                         try { listeningData.value = JSON.parse(item.feedback); listeningAnswers.value = {}; showTranscript.value = false; currentTab.value = 'listening'; } catch(e) {}
                     } else if (item.type === 'chat') { 
-                        // YENİ: SOHBET GEÇMİŞİ YÜKLEME
+                        // SOHBET GEÇMİŞİ YÜKLEME
                         try { 
                             const data = JSON.parse(item.feedback); 
                             chatHistory.value = [
-                                { role: 'user', text: data.user_text },
+                                { role: 'user', text: data.user_text, audio_url: data.user_audio_url },
                                 { role: 'ai', text: data.ai_text }
                             ]; 
                             speakingMode.value = 'chat'; 
@@ -895,7 +904,7 @@
 
                 return { 
                     currentTab, loading, loadingMsg, 
-                    speakBrowserNative, playAIAudio, // Yeni seslendirme fonksiyonları
+                    speakBrowserNative, playAIAudio, playUserAudio,
                     readingForm, readingData, answers, blankAnswers, generateReading, parsedPassage, translateWord, activePopup, popupX, popupY,
                     writingForm, writingFeedback, evaluateWriting, resetWriting, suggestRandomTopic, suggestSpeakingTopic,
                     speakingMode, speakingForm, speakingFeedback, isRecording, audioUrl, startRecording, stopRecording, evaluateSpeaking,
