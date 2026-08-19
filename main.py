@@ -80,7 +80,6 @@ def init_db():
                 c.execute('''CREATE TABLE IF NOT EXISTS vocabulary
                              (id SERIAL PRIMARY KEY, word TEXT, translation TEXT, is_learned BOOLEAN DEFAULT FALSE, created_at TEXT)''')
                 
-                # YENİ: Ses Dosyalarını Kalıcı Saklayacağımız Tablo
                 c.execute('''CREATE TABLE IF NOT EXISTS audio_files
                              (id VARCHAR(50) PRIMARY KEY, audio_data BYTEA, content_type TEXT, created_at TEXT)''')
             conn.commit()
@@ -89,7 +88,6 @@ def init_db():
 
 init_db()
 
-# Sadece anlık geçici üretilen AI sesleri için klasör
 os.makedirs("static/audio", exist_ok=True)
 os.makedirs("static/user_audio", exist_ok=True)
 
@@ -105,7 +103,6 @@ def save_to_history(type_val: str, topic: str, content: str, feedback: str):
     except Exception as e:
         print(f"Geçmiş Kaydetme Hatası: {e}")
 
-# YENİ: Sesi PostgreSQL veritabanına kaydetme fonksiyonu
 def save_audio_to_db(audio_bytes: bytes, content_type: str) -> str:
     if not DATABASE_URL: return ""
     audio_id = uuid.uuid4().hex
@@ -276,11 +273,14 @@ class TTSRequest(BaseModel):
     text: str
     voice: str = "en-US-SteffanNeural"
 
+# YENİ: Geçmişten dinleme kaydını sıfırdan oluşturmak için veri modeli (Bunu unutmuştuk!)
+class ListeningTTSRequest(BaseModel):
+    dialogue: list
+
 # ==========================================
 # 5. API YÖNLENDİRMELERİ (ROUTERS)
 # ==========================================
 
-# YENİ: Veritabanından sesi frontend'e gönderme uç noktası
 @app.get("/api/audio/{audio_id}")
 async def get_audio_from_db(audio_id: str):
     if not DATABASE_URL: raise HTTPException(status_code=404, detail="DB bağlantısı yok.")
@@ -308,9 +308,42 @@ async def generate_tts(req: TTSRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ses sentezleme hatası: {e}")
 
-# ------------------------------------------
-# KARŞILIKLI SOHBET UÇ NOKTASI
-# ------------------------------------------
+# YENİ: Geçmişteki dinleme programlarını sıfırdan seslendiren uç nokta (İşte eksik olan buydu!)
+@app.post("/api/listening/tts")
+async def regenerate_listening_tts(req: ListeningTTSRequest):
+    voice_map = {
+        "host1": "en-GB-RyanNeural",
+        "host2": "en-GB-SoniaNeural",
+        "guest": "en-US-SteffanNeural"
+    }
+    combined_audio = b""
+    try:
+        for line in req.dialogue:
+            speaker = line.get("speaker", "host1")
+            text = line.get("text", "")
+            voice = voice_map.get(speaker, "en-US-AriaNeural")
+            
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_audio:
+                temp_path = temp_audio.name
+                
+            communicate = edge_tts.Communicate(text, voice)
+            await communicate.save(temp_path)
+            
+            with open(temp_path, "rb") as f:
+                combined_audio += f.read()
+                
+            os.remove(temp_path)
+            
+        file_name = f"listening_regen_{uuid.uuid4().hex[:8]}.mp3"
+        file_path = os.path.join("static", "audio", file_name)
+        
+        with open(file_path, "wb") as f:
+            f.write(combined_audio)
+            
+        return {"audio_url": f"/audio/{file_name}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ses sentezleme hatası: {str(e)}")
+
 @app.post("/api/chat/voice")
 async def voice_chat(audio: UploadFile = File(...), history: str = Form("[]")):
     if not groq_client:
@@ -318,11 +351,9 @@ async def voice_chat(audio: UploadFile = File(...), history: str = Form("[]")):
 
     audio_bytes = await audio.read()
     
-    # 1. Kullanıcının Sesini Veritabanına Kalıcı Kaydet (Render silinmesine karşı koruma)
     user_audio_id = save_audio_to_db(audio_bytes, "audio/webm")
     user_audio_url = f"/api/audio/{user_audio_id}" if user_audio_id else ""
 
-    # 2. Sesi Metne Çevir (Whisper)
     try:
         print("🎙️ Groq Whisper'a sohbet sesi gönderiliyor...")
         transcription = groq_client.audio.transcriptions.create(
@@ -409,7 +440,6 @@ async def voice_chat(audio: UploadFile = File(...), history: str = Form("[]")):
     ai_text = ai_text.replace("*", "").replace("#", "")
     print(f"🤖 AI: {ai_text}")
 
-    # Canlı sohbetin akıcılığı için AI sesi o an mecburen oluşturulup yollanır (Geçici)
     print("🔊 Ses sentezleniyor (Edge-TTS)...")
     file_name = f"chat_{uuid.uuid4().hex[:8]}.mp3"
     file_path = os.path.join("static", "audio", file_name)
@@ -427,15 +457,11 @@ async def voice_chat(audio: UploadFile = File(...), history: str = Form("[]")):
         "user_audio_url": user_audio_url
     }
 
-    # Sohbeti Geçmişe Kaydetme
     topic_preview = user_text[:40] + "..." if len(user_text) > 40 else user_text
     save_to_history("chat", f"Sohbet: {topic_preview}", user_text, json.dumps(chat_result))
 
     return chat_result
 
-# ------------------------------------------
-# KONUŞMA ANALİZ UÇ NOKTASI
-# ------------------------------------------
 @app.post("/api/speaking/evaluate")
 async def evaluate_speaking(audio: UploadFile = File(...), topic: str = Form("")):
     if not groq_client:
@@ -443,7 +469,6 @@ async def evaluate_speaking(audio: UploadFile = File(...), topic: str = Form("")
         
     audio_bytes = await audio.read()
     
-    # 1. Kullanıcının Pratik Sesini Doğrudan PostgreSQL'e Kaydet
     user_audio_id = save_audio_to_db(audio_bytes, "audio/webm")
     user_audio_url = f"/api/audio/{user_audio_id}" if user_audio_id else ""
 
@@ -495,14 +520,10 @@ async def evaluate_speaking(audio: UploadFile = File(...), topic: str = Form("")
     
     result = await get_ai_response(prompt)
     result["transcribed_text"] = user_text
-    result["user_audio_url"] = user_audio_url # Geçmişte oynatmak için DB url'si
+    result["user_audio_url"] = user_audio_url
     
     save_to_history("speaking", chosen_topic, user_text, json.dumps(result))
     return result
-
-# ------------------------------------------
-# DİĞER STANDART UÇ NOKTALAR
-# ------------------------------------------
 
 @app.post("/api/reading/generate")
 async def generate_reading(req: ReadingRequest):
@@ -662,13 +683,22 @@ async def generate_listening(req: ListeningRequest):
     1. Write a highly realistic, engaging English audio script (approx. 200-250 words total).
     2. Break it into a JSON array called 'dialogue' with 'speaker' and 'text'.
        - Allowed speakers: "host1", "host2", "guest".
-    3. Generate EXACTLY 5 challenging comprehension questions that require deep understanding.
+    3. EXTRACT EXACTLY 5 sentences directly from the generated script. In each sentence, replace one key word with a blank ('___') to create a "fill in the blank" exercise based on the audio. Provide 3 options and the correct_index.
+    4. Generate EXACTLY 5 challenging comprehension questions that require deep understanding.
     
     Output STRICTLY in this JSON format:
     {{
       "title": "Title of the Audio Segment",
       "dialogue": [
         {{ "speaker": "host1", "text": "Welcome to the show..." }}
+      ],
+      "fill_in_blanks": [
+        {{
+          "sentence_with_blank": "Welcome to the ___...",
+          "options": ["show", "game", "test"],
+          "correct_index": 0,
+          "explanation_tr": "Doğru cevap show."
+        }}
       ],
       "questions": [
         {{
@@ -710,7 +740,6 @@ async def generate_listening(req: ListeningRequest):
             
         os.remove(temp_path)
 
-    # Dinleme metni ve sesi DB'ye gömüyoruz ki Render silse bile kaybolmasın
     listening_audio_id = save_audio_to_db(combined_audio, "audio/mpeg")
     result["audio_url"] = f"/api/audio/{listening_audio_id}" if listening_audio_id else ""
     

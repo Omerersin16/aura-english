@@ -166,7 +166,7 @@
                                     <!-- AI mesajını tekrar dinle butonu -->
                                     <button v-if="msg.role === 'ai'" @click="playAIAudio(msg.text)" class="mt-2 text-xs bg-gray-800 px-2 py-1 rounded border border-gray-600 hover:bg-lilac transition-colors block text-white">🔊 Tekrar Dinle</button>
                                     
-                                    <!-- Kullanıcı mesajını tekrar dinle butonu (YENİ EKLENDİ) -->
+                                    <!-- Kullanıcı mesajını tekrar dinle butonu -->
                                     <button v-if="msg.role === 'user' && msg.audio_url" @click="playUserAudio(msg.audio_url)" class="mt-2 text-xs bg-gray-900/40 px-2 py-1 rounded border border-gray-400 hover:bg-gray-800 transition-colors block text-white">🎧 Kaydımı Dinle</button>
                                 </div>
                             </div>
@@ -240,7 +240,7 @@
                 </div>
             </transition>
 
-            <!-- DİNLEME SEKMESİ -->
+            <!-- DİNLEME SEKMESİ (BEYAZ EKRAN ÇÖKMESİ VE YENİDEN SESLENDİRME DÜZELTİLDİ) -->
             <transition name="fade" mode="out-in">
                 <div v-if="currentTab === 'listening' && !listeningData" class="space-y-6">
                     <div class="glass-card p-6 sm:p-8">
@@ -263,32 +263,85 @@
                     <button @click="listeningData = null; showTranscript = false" class="text-gray-400 hover:text-white mb-2 flex items-center gap-2">← Yeni Dinleme</button>
                     <div class="glass-card p-6 sm:p-8 relative">
                         <h3 class="text-2xl sm:text-3xl font-bold mb-6 text-white text-center">{{ listeningData.title }}</h3>
+                        
+                        <!-- YENİDEN SESLENDİRME BUTONU VE SES OYNATICI -->
                         <div class="bg-darkcard border border-gray-700 p-6 rounded-2xl flex flex-col items-center justify-center mb-8 shadow-inner">
-                            <audio :src="listeningData.audio_url" controls class="w-full max-w-2xl"></audio>
-                        </div>
-                        <div class="space-y-6 mb-10">
-                            <div v-for="(q, qIndex) in listeningData.questions" :key="'lq'+qIndex" class="bg-gray-800 border border-gray-700 rounded-2xl p-6">
-                                <p class="font-medium text-lg mb-4 text-gray-100">{{ qIndex + 1 }}. {{ q.question }}</p>
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <button v-for="(opt, oIndex) in q.options" @click="listeningAnswers[qIndex] === undefined && (listeningAnswers[qIndex] = oIndex)"
-                                        :class="listeningAnswers[qIndex] === undefined ? 'hover:bg-gray-700 border-gray-600 text-gray-300' : (oIndex === q.correct_index ? 'bg-darkGreen/40 border-neonGreen text-white' : (listeningAnswers[qIndex] === oIndex ? 'bg-lilacDark/40 border-lilac text-white' : 'opacity-50 border-gray-800 text-gray-500'))"
-                                        class="text-left px-4 py-3 rounded-xl border transition-all">{{ opt }}</button>
-                                </div>
-                                <div v-if="listeningAnswers[qIndex] !== undefined" class="mt-4 p-4 rounded-xl text-sm" :class="listeningAnswers[qIndex] === q.correct_index ? 'bg-darkGreen/20 text-neonGreen border border-darkGreen' : 'bg-lilacDark/20 text-lilac border border-lilacDark'">
-                                    <strong>{{ listeningAnswers[qIndex] === q.correct_index ? 'Doğru! 🎉' : 'Yanlış! ❌' }}</strong> {{ q.explanation_tr }}
-                                </div>
+                            <div v-if="listeningData.audio_url" class="w-full max-w-2xl text-center">
+                                <!-- SES OYNATICIYA @ended EKLENDİ -->
+                                <audio :src="listeningData.audio_url" controls class="w-full" @ended="onListeningAudioEnded"></audio>
+                            </div>
+                            <div v-else class="text-center w-full">
+                                <p class="text-gray-400 mb-4 text-sm">Bu kayıt geçmişten yüklendiği için ses dosyası yer kaplamaması adına silinmiş olabilir.</p>
+                                <button @click="regenerateListeningAudio" class="bg-gradient-to-r from-neonGreen to-emerald-500 text-black font-bold py-3 px-8 rounded-xl shadow-lg hover:scale-105 transition-all">
+                                    🔊 Seslendir (Yeniden Oluştur)
+                                </button>
                             </div>
                         </div>
-                        <div class="border-t border-gray-700 pt-8 mt-8 flex flex-col items-center">
-                            <button @click="showTranscript = !showTranscript" class="text-lilac hover:text-white font-medium flex items-center gap-2 border border-gray-700 hover:border-lilac px-6 py-3 rounded-xl bg-gray-800">
-                                {{ showTranscript ? '👀 Transkripti Gizle' : '📖 Transkripti Göster' }}
-                            </button>
-                            <div v-if="showTranscript" class="mt-6 w-full bg-darkcard p-6 rounded-2xl border border-gray-700 space-y-4">
-                                <div v-for="(line, index) in listeningData.dialogue" :key="index" class="text-lg leading-relaxed">
-                                    <span class="font-bold text-neonGreen capitalize">{{ line.speaker }}: </span><span class="text-gray-300">{{ line.text }}</span>
-                                </div>
+
+                        <!-- 2 KERE DİNLEMEDEN AÇILMAYAN KİLİT EKRANI -->
+                        <div v-if="!listeningQuestionsUnlocked" class="bg-gray-800 border border-gray-700 p-8 rounded-2xl text-center shadow-lg transition-all duration-500">
+                            <div class="text-6xl mb-4 animate-bounce">🔒</div>
+                            <h4 class="text-2xl font-bold text-white mb-2">Sorular ve Metin Kilitli</h4>
+                            <p class="text-gray-400 text-lg">Pratiği tamamlamak için önce sesi dikkatlice dinlemelisin.</p>
+                            <div class="mt-4 inline-block bg-bordo/20 border border-bordo text-red-300 px-6 py-3 rounded-xl font-medium">
+                                Kilidi açmak için kaydı <strong class="text-white text-xl">{{ Math.max(0, 2 - listeningPlayCount) }}</strong> kez daha sonuna kadar dinlemelisin.
                             </div>
                         </div>
+
+                        <!-- KİLİT AÇILDIĞINDA GÖRÜNECEK OLAN SORULAR -->
+                        <transition name="fade">
+                            <div v-if="listeningQuestionsUnlocked">
+                                
+                                <!-- DİNLEME BOŞLUK DOLDURMA (YENİ) -->
+                                <div v-if="listeningData.fill_in_blanks && listeningData.fill_in_blanks.length > 0" class="bg-gray-800 rounded-2xl p-6 mb-8 border border-gray-700">
+                                    <h4 class="text-xl font-semibold text-lilac mb-4">🧩 Kelime Pratiği (Duyduğunu Anlama)</h4>
+                                    <div class="space-y-6">
+                                        <div v-for="(item, bIndex) in listeningData.fill_in_blanks" :key="'lbl'+bIndex" class="bg-darkcard p-5 rounded-xl border border-gray-600">
+                                            <p class="text-lg text-gray-200 mb-4 font-medium">
+                                                {{ bIndex + 1 }}. 
+                                                <span v-if="listeningBlankAnswers[bIndex] && listeningBlankAnswers[bIndex].isCorrect" class="text-neonGreen border-b-2 border-neonGreen px-1 font-bold">{{ item.options[item.correct_index] }}</span>
+                                                <span v-else v-html="item.sentence_with_blank.replace('___', '<span class=\'inline-block w-16 border-b-2 border-gray-500 mx-1\'></span>')"></span>
+                                            </p>
+                                            <div class="flex flex-wrap gap-3">
+                                                <button v-for="(opt, oIndex) in item.options" @click="selectListeningBlankOption(bIndex, oIndex)" :disabled="listeningBlankAnswers[bIndex] && listeningBlankAnswers[bIndex].isCorrect" :class="getListeningBlankButtonClass(bIndex, oIndex, item.correct_index)" class="px-4 py-2 rounded-lg border transition-all font-medium">{{ opt }}</button>
+                                            </div>
+                                            <div v-if="listeningBlankAnswers[bIndex] && listeningBlankAnswers[bIndex].showExplanation" class="mt-4 p-4 rounded-xl text-sm" :class="listeningBlankAnswers[bIndex].isCorrect ? 'bg-darkGreen/20 text-neonGreen border border-darkGreen' : 'bg-bordo/20 text-red-400 border border-bordo'">
+                                                <strong>{{ listeningBlankAnswers[bIndex].isCorrect ? 'Harika! 🎉' : 'Yanlış Seçim! ❌' }}</strong> {{ item.explanation_tr }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- SORULAR - GÜVENLİ RENDER -->
+                                <div class="space-y-6 mb-10">
+                                    <h4 class="text-xl font-semibold text-white border-b border-gray-700 pb-2">Dinlediğini Anlama Soruları</h4>
+                                    <div v-for="(q, qIndex) in (listeningData.questions || [])" :key="'lq'+qIndex" class="bg-gray-800 border border-gray-700 rounded-2xl p-6">
+                                        <p class="font-medium text-lg mb-4 text-gray-100">{{ qIndex + 1 }}. {{ q.question }}</p>
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            <button v-for="(opt, oIndex) in q.options" @click="listeningAnswers[qIndex] === undefined && (listeningAnswers[qIndex] = oIndex)"
+                                                :class="listeningAnswers[qIndex] === undefined ? 'hover:bg-gray-700 border-gray-600 text-gray-300' : (oIndex === q.correct_index ? 'bg-darkGreen/40 border-neonGreen text-white' : (listeningAnswers[qIndex] === oIndex ? 'bg-lilacDark/40 border-lilac text-white' : 'opacity-50 border-gray-800 text-gray-500'))"
+                                                class="text-left px-4 py-3 rounded-xl border transition-all">{{ opt }}</button>
+                                        </div>
+                                        <div v-if="listeningAnswers[qIndex] !== undefined" class="mt-4 p-4 rounded-xl text-sm" :class="listeningAnswers[qIndex] === q.correct_index ? 'bg-darkGreen/20 text-neonGreen border border-darkGreen' : 'bg-lilacDark/20 text-lilac border border-lilacDark'">
+                                            <strong>{{ listeningAnswers[qIndex] === q.correct_index ? 'Doğru! 🎉' : 'Yanlış! ❌' }}</strong> {{ q.explanation_tr }}
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- DİYALOG TRANSKRİPT - GÜVENLİ RENDER -->
+                                <div class="border-t border-gray-700 pt-8 mt-8 flex flex-col items-center">
+                                    <button @click="showTranscript = !showTranscript" class="text-lilac hover:text-white font-medium flex items-center gap-2 border border-gray-700 hover:border-lilac px-6 py-3 rounded-xl bg-gray-800">
+                                        {{ showTranscript ? '👀 Transkripti Gizle' : '📖 Transkripti Göster' }}
+                                    </button>
+                                    <div v-if="showTranscript" class="mt-6 w-full bg-darkcard p-6 rounded-2xl border border-gray-700 space-y-4">
+                                        <div v-for="(line, index) in (listeningData.dialogue || [])" :key="index" class="text-lg leading-relaxed">
+                                            <span class="font-bold text-neonGreen capitalize">{{ line.speaker }}: </span><span class="text-gray-300">{{ line.text }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </transition>
                     </div>
                 </div>
             </transition>
@@ -311,6 +364,7 @@
                             </p>
                         </div>
 
+                        <!-- GOOGLE TRANSLATE DESTEKLİ ÇEVİRİ VE NATIVE SESLENDİRME BALONU -->
                         <div v-if="activePopup" @click.stop class="fixed z-50 bg-gray-900 border border-lilac text-white p-4 rounded-xl shadow-2xl min-w-[220px]" :style="{ top: popupY + 'px', left: popupX + 'px' }">
                             <div class="flex justify-between items-start gap-4">
                                 <div>
@@ -346,7 +400,7 @@
                         </div>
                         <div class="space-y-6">
                             <h4 class="text-xl font-semibold text-white border-b border-gray-700 pb-2">Okuduğunu Anlama Soruları</h4>
-                            <div v-for="(q, qIndex) in readingData.questions" :key="qIndex" class="bg-gray-800 border border-gray-700 rounded-2xl p-6">
+                            <div v-for="(q, qIndex) in (readingData.questions || [])" :key="qIndex" class="bg-gray-800 border border-gray-700 rounded-2xl p-6">
                                 <p class="font-medium text-lg mb-4 text-gray-100">{{ qIndex + 1 }}. {{ q.question }}</p>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <button v-for="(opt, oIndex) in q.options" @click="answers[qIndex] === undefined && (answers[qIndex] = oIndex)" :class="answers[qIndex] === undefined ? 'hover:bg-gray-700 border-gray-600 text-gray-300' : (oIndex === q.correct_index ? 'bg-darkGreen/40 border-neonGreen text-white' : (answers[qIndex] === oIndex ? 'bg-lilacDark/40 border-lilac text-white' : 'opacity-50 border-gray-800 text-gray-500'))" class="text-left px-4 py-3 rounded-xl border transition-all">{{ opt }}</button>
@@ -528,7 +582,10 @@
                 const listeningForm = reactive({ level: 'B2', topic: '', speakers: '2' });
                 const listeningData = ref(null);
                 const listeningAnswers = ref({});
+                const listeningBlankAnswers = ref({});
                 const showTranscript = ref(false);
+                const listeningPlayCount = ref(0);
+                const listeningQuestionsUnlocked = ref(false);
 
                 const history = ref([]);
                 const historyPage = ref(1);
@@ -556,15 +613,13 @@
                     window.removeEventListener('click', closePopup);
                 });
 
-                // YENİ: YERLEŞİK TARAYICI TELAFUZU (NATIVE BROWSER TTS)
                 const speakBrowserNative = (text) => {
                     const utterance = new SpeechSynthesisUtterance(text);
                     utterance.lang = 'en-US';
-                    utterance.rate = 0.85; // Telaffuz net anlaşılsın diye hafif yavaşlatıldı
+                    utterance.rate = 0.85; 
                     window.speechSynthesis.speak(utterance);
                 };
 
-                // YENİ: İSTEĞE BAĞLI AI SESLENDİRME (EDGE-TTS BACKEND ÜZERİNDEN)
                 const playAIAudio = async (text) => {
                     try {
                         showLoader("AI Sesi Hazırlanıyor... 🔊");
@@ -582,11 +637,35 @@
                     } catch(e) { hideLoader(); alert("Ses bağlantı hatası!"); }
                 };
 
-                // YENİ: KULLANICININ KENDİ KAYDINI DİNLEMESİ İÇİN
                 const playUserAudio = (url) => {
                     if (!url) return;
                     const audio = new Audio(url);
                     audio.play();
+                };
+
+                // YENİ: DİNLEME (RADYO) SESİNİ GEÇMİŞTEN SIFIRDAN OLUŞTURMAK İÇİN
+                const regenerateListeningAudio = async () => {
+                    showLoader("Stüdyo tekrar kuruluyor, seslendiriliyor... 🎧🎙️"); 
+                    try {
+                        const res = await fetch(`${API}/listening/tts`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ dialogue: listeningData.value.dialogue })
+                        });
+                        const data = await res.json();
+                        if(res.ok) {
+                            listeningData.value.audio_url = data.audio_url;
+                        } else alert(data.detail);
+                    } catch(e) { alert("Ses oluşturulamadı!"); }
+                    hideLoader();
+                };
+
+                // DİNLEME SESİ BİTTİĞİNDE ÇALIŞACAK FONKSİYON (KİLİT MEKANİZMASI)
+                const onListeningAudioEnded = () => {
+                    listeningPlayCount.value++;
+                    if (listeningPlayCount.value >= 2) {
+                        listeningQuestionsUnlocked.value = true;
+                    }
                 };
 
                 const parsedPassage = computed(() => {
@@ -617,6 +696,23 @@
                     const ans = blankAnswers.value[bIndex];
                     if (ans.isCorrect) {
                         return oIndex === correctIndex ? 'bg-darkGreen/40 border-neonGreen text-white' : 'opacity-50 border-gray-800 text-gray-500 bg-gray-800';
+                    } else {
+                        if (oIndex === ans.selected) return 'bg-bordo/40 border-red-500 text-white';
+                        if (oIndex === correctIndex) return 'bg-gray-700 border-gray-500 hover:bg-gray-600 text-white'; 
+                        return 'opacity-50 border-gray-800 text-gray-500 bg-gray-800';
+                    }
+                };
+
+                const selectListeningBlankOption = (bIndex, oIndex) => { 
+                    const item = listeningData.value.fill_in_blanks[bIndex]; 
+                    listeningBlankAnswers.value[bIndex] = { selected: oIndex, isCorrect: (oIndex === item.correct_index), showExplanation: true }; 
+                };
+
+                const getListeningBlankButtonClass = (bIndex, oIndex, correctIndex) => {
+                    if (!listeningBlankAnswers.value[bIndex]) return 'bg-gray-700 hover:bg-gray-600 border-gray-500 text-white';
+                    const ans = listeningBlankAnswers.value[bIndex];
+                    if (ans.isCorrect) { 
+                        return oIndex === correctIndex ? 'bg-darkGreen/40 border-neonGreen text-white' : 'opacity-50 border-gray-800 text-gray-500 bg-gray-800'; 
                     } else {
                         if (oIndex === ans.selected) return 'bg-bordo/40 border-red-500 text-white';
                         if (oIndex === correctIndex) return 'bg-gray-700 border-gray-500 hover:bg-gray-600 text-white'; 
@@ -745,7 +841,12 @@
 
                 const generateListening = async () => {
                     showLoader("Stüdyo ayarlanıyor, radyo programı seslendiriliyor... 🎧🎙️ Lütfen bekleyin."); 
-                    listeningData.value = null; listeningAnswers.value = {}; showTranscript.value = false;
+                    listeningData.value = null; 
+                    listeningAnswers.value = {}; 
+                    listeningBlankAnswers.value = {}; 
+                    showTranscript.value = false; 
+                    listeningPlayCount.value = 0; 
+                    listeningQuestionsUnlocked.value = false;
                     try {
                         const payload = { level: listeningForm.level, topic: listeningForm.topic, speakers: parseInt(listeningForm.speakers) };
                         const res = await fetch(`${API}/listening/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -879,6 +980,8 @@
                         } catch(e) {}
                     }
                 };
+
+                // GÜVENLİ GEÇMİŞ YÜKLEME (Çökmeleri Engelleyen Yapı)
                 const loadFromHistory = (item) => {
                     if (item.type === 'reading' || item.type === 'file') {
                         try { readingData.value = JSON.parse(item.content); answers.value = {}; blankAnswers.value = {}; currentTab.value = 'reading'; } catch(e) {}
@@ -887,28 +990,42 @@
                     } else if (item.type === 'speaking') {
                         try { speakingFeedback.value = JSON.parse(item.feedback); speakingForm.topic = item.topic; speakingMode.value = 'test'; currentTab.value = 'speaking'; } catch(e) {}
                     } else if (item.type === 'listening') {
-                        try { listeningData.value = JSON.parse(item.feedback); listeningAnswers.value = {}; showTranscript.value = false; currentTab.value = 'listening'; } catch(e) {}
+                        try { 
+                            const parsed = JSON.parse(item.feedback); 
+                            // Güvenlik: Eski kayıtlarda olmayan verileri boş array ile doldur
+                            parsed.questions = parsed.questions || [];
+                            parsed.dialogue = parsed.dialogue || [];
+                            parsed.fill_in_blanks = parsed.fill_in_blanks || [];
+                            parsed.audio_url = ""; // Geçmişten gelindiğinde ses silinmiştir, yeniden oluştur butonu çıksın.
+                            
+                            listeningData.value = parsed; 
+                            listeningAnswers.value = {}; 
+                            listeningBlankAnswers.value = {};
+                            listeningPlayCount.value = 0;
+                            // Geçmişte haksızlık olmasın ama yine de dinlemeye teşvik edelim diye kapalı başlatıyoruz.
+                            listeningQuestionsUnlocked.value = false;
+                            showTranscript.value = false; 
+                            currentTab.value = 'listening'; 
+                        } catch(e) {
+                            alert("Bu kayıt eski bir formatta olduğu için açılamıyor.");
+                        }
                     } else if (item.type === 'chat') { 
-                        // SOHBET GEÇMİŞİ YÜKLEME
                         try { 
                             const data = JSON.parse(item.feedback); 
-                            chatHistory.value = [
-                                { role: 'user', text: data.user_text, audio_url: data.user_audio_url },
-                                { role: 'ai', text: data.ai_text }
-                            ]; 
-                            speakingMode.value = 'chat'; 
-                            currentTab.value = 'speaking'; 
+                            chatHistory.value = [ { role: 'user', text: data.user_text, audio_url: data.user_audio_url }, { role: 'ai', text: data.ai_text } ]; 
+                            speakingMode.value = 'chat'; currentTab.value = 'speaking'; 
                         } catch(e) {} 
                     }
                 };
 
                 return { 
-                    currentTab, loading, loadingMsg, 
-                    speakBrowserNative, playAIAudio, playUserAudio,
+                    currentTab, loading, loadingMsg, speakBrowserNative, playAIAudio, playUserAudio, regenerateListeningAudio,
                     readingForm, readingData, answers, blankAnswers, generateReading, parsedPassage, translateWord, activePopup, popupX, popupY,
                     writingForm, writingFeedback, evaluateWriting, resetWriting, suggestRandomTopic, suggestSpeakingTopic,
                     speakingMode, speakingForm, speakingFeedback, isRecording, audioUrl, startRecording, stopRecording, evaluateSpeaking,
                     chatHistory, chatIsRecording, chatIsProcessing, chatIsPlaying, chatAudioPlayer, startChatRecording, stopChatRecording,
+                    listeningForm, listeningData, listeningAnswers, listeningBlankAnswers, showTranscript, generateListening,
+                    listeningPlayCount, listeningQuestionsUnlocked, onListeningAudioEnded, selectListeningBlankOption, getListeningBlankButtonClass,
                     history, historyPage, historyTotalPages, showStarredOnly, fetchHistory, loadFromHistory, toggleStarItem, deleteHistoryItem, 
                     vocabulary, vocabFilter, filteredVocabulary, fetchVocabulary, saveWordToVault, toggleVocabStatus, deleteVocab,
                     handleFileChange, analyzeFile, selectedFile, selectBlankOption, getBlankButtonClass, showScrollTop, scrollToTop 
